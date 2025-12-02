@@ -144,6 +144,10 @@ type HostHAL interface {
 	// Stop disables the host controller and removes power from ports.
 	Stop() error
 
+	// Close releases all resources associated with the HAL.
+	// After Close returns, the HAL should not be used.
+	Close() error
+
 	// Port Operations
 
 	// NumPorts returns the number of root hub ports.
@@ -192,6 +196,16 @@ type HostHAL interface {
 	// SetDeviceAddress assigns an address to a device at address 0.
 	// This is called after port reset during enumeration.
 	SetDeviceAddress(ctx context.Context, newAddr DeviceAddress) error
+
+	// Interface Management
+
+	// ClaimInterface claims exclusive access to an interface on a device.
+	// For HALs that require kernel driver detachment (e.g., Linux usbfs),
+	// this should detach any existing driver before claiming.
+	ClaimInterface(addr DeviceAddress, iface uint8) error
+
+	// ReleaseInterface releases a previously claimed interface.
+	ReleaseInterface(addr DeviceAddress, iface uint8) error
 
 	// Connection Events
 

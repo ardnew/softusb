@@ -35,6 +35,9 @@ type HostHAL interface {
     // Stop disables the host controller and removes power from ports.
     Stop() error
 
+    // Close releases all resources associated with the HAL.
+    Close() error
+
     // Port Operations
 
     // NumPorts returns the number of root hub ports.
@@ -73,10 +76,21 @@ type HostHAL interface {
     // SetDeviceAddress assigns an address to a device at address 0.
     SetDeviceAddress(ctx context.Context, newAddr DeviceAddress) error
 
+    // Interface Management
+
+    // ClaimInterface claims exclusive access to an interface on a device.
+    ClaimInterface(addr DeviceAddress, iface uint8) error
+
+    // ReleaseInterface releases a previously claimed interface.
+    ReleaseInterface(addr DeviceAddress, iface uint8) error
+
     // Connection Events
 
     // WaitForConnection blocks until a device connects or context is cancelled.
     WaitForConnection(ctx context.Context) (int, error)
+
+    // WaitForDisconnection blocks until a device disconnects or context is cancelled.
+    WaitForDisconnection(ctx context.Context) (int, error)
 }
 ```
 
@@ -199,6 +213,24 @@ hal := fifo.New("/tmp/usb-test")
 ```
 
 See [`hal/fifo/README.md`](fifo/README.md) for details.
+
+### Linux HAL (`hal/linux`)
+
+A production HAL implementation for Linux systems using the kernel's usbfs interface. Features:
+
+- Device discovery via sysfs (`/sys/bus/usb/devices/`)
+- Device access via usbfs (`/dev/bus/usb/`)
+- Hotplug detection via netlink
+- Async I/O via epoll for efficient polling
+- No cgo dependencies
+
+```go
+import "github.com/ardnew/softusb/host/hal/linux"
+
+hal := linux.NewHostHAL()
+```
+
+See [`hal/linux/doc.go`](linux/doc.go) for requirements and architecture details.
 
 ---
 

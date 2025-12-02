@@ -464,3 +464,656 @@ func TestConfigurationClose(t *testing.T) {
 		t.Error("interfaces should be cleared after Close()")
 	}
 }
+
+// =============================================================================
+// Edge Case Tests
+// =============================================================================
+
+func TestInterfaceAddEndpointEdgeCases(t *testing.T) {
+	t.Run("MaxEndpoints", func(t *testing.T) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		// Add maximum endpoints (16 per direction typical)
+		for i := uint8(1); i <= MaxEndpointsPerInterface; i++ {
+			addr := i | 0x80 // IN endpoints
+			err := iface.AddEndpoint(&Endpoint{Address: addr, Attributes: EndpointTypeBulk})
+			if err != nil {
+				t.Fatalf("AddEndpoint(0x%02X) error = %v", addr, err)
+			}
+		}
+		// Adding one more should fail
+		err := iface.AddEndpoint(&Endpoint{Address: 0x01, Attributes: EndpointTypeBulk})
+		if err == nil {
+			t.Error("AddEndpoint() should fail when at capacity")
+		}
+	})
+
+	t.Run("AllTransferTypes", func(t *testing.T) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		types := []uint8{EndpointTypeControl, EndpointTypeIsochronous, EndpointTypeBulk, EndpointTypeInterrupt}
+		for i, epType := range types {
+			err := iface.AddEndpoint(&Endpoint{Address: uint8(0x81 + i), Attributes: epType})
+			if err != nil {
+				t.Fatalf("AddEndpoint() with type %d error = %v", epType, err)
+			}
+		}
+		if iface.NumEndpoints() != len(types) {
+			t.Errorf("NumEndpoints() = %d, want %d", iface.NumEndpoints(), len(types))
+		}
+	})
+}
+
+func TestInterfaceRemoveEndpointEdgeCases(t *testing.T) {
+	t.Run("RemoveNonexistent", func(t *testing.T) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		iface.AddEndpoint(&Endpoint{Address: 0x81})
+		// Should not panic or error
+		iface.RemoveEndpoint(0x82)
+		if iface.NumEndpoints() != 1 {
+			t.Error("should not remove existing endpoint")
+		}
+	})
+
+	t.Run("RemoveFromEmpty", func(t *testing.T) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		// Should not panic
+		iface.RemoveEndpoint(0x81)
+		if iface.NumEndpoints() != 0 {
+			t.Error("should remain empty")
+		}
+	})
+
+	t.Run("RemoveMiddle", func(t *testing.T) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		iface.AddEndpoint(&Endpoint{Address: 0x81})
+		iface.AddEndpoint(&Endpoint{Address: 0x82})
+		iface.AddEndpoint(&Endpoint{Address: 0x83})
+
+		iface.RemoveEndpoint(0x82)
+
+		if iface.NumEndpoints() != 2 {
+			t.Errorf("NumEndpoints() = %d, want 2", iface.NumEndpoints())
+		}
+		if iface.GetEndpoint(0x81) == nil {
+			t.Error("0x81 should still exist")
+		}
+		if iface.GetEndpoint(0x83) == nil {
+			t.Error("0x83 should still exist")
+		}
+	})
+}
+
+func TestInterfaceGetInOutEndpointEdgeCases(t *testing.T) {
+	t.Run("NoMatchingEndpoint", func(t *testing.T) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		iface.AddEndpoint(&Endpoint{Address: 0x81}) // Only IN
+
+		if got := iface.GetOutEndpoint(1); got != nil {
+			t.Error("GetOutEndpoint(1) should return nil")
+		}
+		if got := iface.GetInEndpoint(2); got != nil {
+			t.Error("GetInEndpoint(2) should return nil")
+		}
+	})
+
+	t.Run("SameNumberDifferentDirection", func(t *testing.T) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		epIn := &Endpoint{Address: 0x81}  // EP1 IN
+		epOut := &Endpoint{Address: 0x01} // EP1 OUT
+		iface.AddEndpoint(epIn)
+		iface.AddEndpoint(epOut)
+
+		if got := iface.GetInEndpoint(1); got != epIn {
+			t.Error("GetInEndpoint(1) returned wrong endpoint")
+		}
+		if got := iface.GetOutEndpoint(1); got != epOut {
+			t.Error("GetOutEndpoint(1) returned wrong endpoint")
+		}
+	})
+}
+
+func TestInterfaceClassDriverEdgeCases(t *testing.T) {
+	t.Run("ReplaceDriver", func(t *testing.T) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		driver1 := &mockClassDriver{}
+		driver2 := &mockClassDriver{}
+
+		iface.SetClassDriver(driver1)
+		if !driver1.initCalled {
+			t.Error("driver1.Init() should be called")
+		}
+
+		iface.SetClassDriver(driver2)
+		if !driver1.closeCalled {
+			t.Error("driver1.Close() should be called when replaced")
+		}
+		if !driver2.initCalled {
+			t.Error("driver2.Init() should be called")
+		}
+	})
+
+	t.Run("SetNilDriver", func(t *testing.T) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		driver := &mockClassDriver{}
+		iface.SetClassDriver(driver)
+
+		err := iface.SetClassDriver(nil)
+		if err != nil {
+			t.Fatalf("SetClassDriver(nil) error = %v", err)
+		}
+		if !driver.closeCalled {
+			t.Error("driver.Close() should be called")
+		}
+		if iface.ClassDriver() != nil {
+			t.Error("ClassDriver() should return nil")
+		}
+	})
+
+	t.Run("SetAlternateNoDriver", func(t *testing.T) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		err := iface.SetAlternate(1)
+		if err != nil {
+			t.Fatalf("SetAlternate() error = %v", err)
+		}
+		if iface.AlternateSetting != 1 {
+			t.Errorf("AlternateSetting = %d, want 1", iface.AlternateSetting)
+		}
+	})
+}
+
+func TestConfigurationAddInterfaceEdgeCases(t *testing.T) {
+	t.Run("MaxInterfaces", func(t *testing.T) {
+		config := NewConfiguration(1)
+		for i := uint8(0); i < MaxInterfacesPerConfiguration; i++ {
+			err := config.AddInterface(NewInterface(&InterfaceDescriptor{InterfaceNumber: i}))
+			if err != nil {
+				t.Fatalf("AddInterface(%d) error = %v", i, err)
+			}
+		}
+		// Adding one more should fail
+		err := config.AddInterface(NewInterface(&InterfaceDescriptor{InterfaceNumber: MaxInterfacesPerConfiguration}))
+		if err == nil {
+			t.Error("AddInterface() should fail when at capacity")
+		}
+	})
+}
+
+func TestConfigurationAddAssociationEdgeCases(t *testing.T) {
+	t.Run("MaxAssociations", func(t *testing.T) {
+		config := NewConfiguration(1)
+		for i := 0; i < MaxAssociationsPerConfiguration; i++ {
+			err := config.AddAssociation(&InterfaceAssociation{FirstInterface: uint8(i * 2)})
+			if err != nil {
+				t.Fatalf("AddAssociation(%d) error = %v", i, err)
+			}
+		}
+		// Adding one more should fail
+		err := config.AddAssociation(&InterfaceAssociation{FirstInterface: 100})
+		if err == nil {
+			t.Error("AddAssociation() should fail when at capacity")
+		}
+	})
+}
+
+func TestConfigurationRemoveInterfaceEdgeCases(t *testing.T) {
+	t.Run("RemoveNonexistent", func(t *testing.T) {
+		config := NewConfiguration(1)
+		config.AddInterface(NewInterface(&InterfaceDescriptor{InterfaceNumber: 0}))
+		// Should not panic
+		config.RemoveInterface(5)
+		if config.NumInterfaces() != 1 {
+			t.Error("should not affect existing interface")
+		}
+	})
+
+	t.Run("RemoveFromEmpty", func(t *testing.T) {
+		config := NewConfiguration(1)
+		// Should not panic
+		config.RemoveInterface(0)
+	})
+}
+
+func TestConfigurationMarshalToEdgeCases(t *testing.T) {
+	t.Run("EmptyConfiguration", func(t *testing.T) {
+		config := NewConfiguration(1)
+		var buf [512]byte
+		n := config.MarshalTo(buf[:])
+		// Just config descriptor = 9 bytes
+		if n != ConfigurationDescriptorSize {
+			t.Errorf("MarshalTo() = %d, want %d", n, ConfigurationDescriptorSize)
+		}
+	})
+
+	t.Run("BufferTooSmall", func(t *testing.T) {
+		config := NewConfiguration(1)
+		var buf [5]byte // Too small for config descriptor
+		n := config.MarshalTo(buf[:])
+		if n != 0 {
+			t.Errorf("MarshalTo() = %d, want 0", n)
+		}
+	})
+
+	t.Run("ComplexConfiguration", func(t *testing.T) {
+		config := NewConfiguration(1)
+		config.AddAssociation(&InterfaceAssociation{
+			FirstInterface: 0,
+			InterfaceCount: 2,
+			FunctionClass:  ClassCDC,
+		})
+
+		iface0 := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0, InterfaceClass: ClassCDC})
+		iface0.AddEndpoint(&Endpoint{Address: 0x83, Attributes: EndpointTypeInterrupt, MaxPacketSize: 8})
+		config.AddInterface(iface0)
+
+		iface1 := NewInterface(&InterfaceDescriptor{InterfaceNumber: 1, InterfaceClass: ClassCDCData})
+		iface1.AddEndpoint(&Endpoint{Address: 0x81, Attributes: EndpointTypeBulk, MaxPacketSize: 512})
+		iface1.AddEndpoint(&Endpoint{Address: 0x02, Attributes: EndpointTypeBulk, MaxPacketSize: 512})
+		config.AddInterface(iface1)
+
+		var buf [1024]byte
+		n := config.MarshalTo(buf[:])
+		// 9 (config) + 8 (IAD) + 9 (iface0) + 7 (ep) + 9 (iface1) + 7 (ep) + 7 (ep) = 56
+		expected := 9 + 8 + 9 + 7 + 9 + 7 + 7
+		if n != expected {
+			t.Errorf("MarshalTo() = %d, want %d", n, expected)
+		}
+
+		// Verify TotalLength in header matches
+		totalLen := uint16(buf[2]) | (uint16(buf[3]) << 8)
+		if int(totalLen) != expected {
+			t.Errorf("TotalLength = %d, want %d", totalLen, expected)
+		}
+	})
+}
+
+func TestInterfaceConcurrentAccess(t *testing.T) {
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	for i := uint8(1); i <= 4; i++ {
+		iface.AddEndpoint(&Endpoint{Address: 0x80 | i})
+	}
+
+	done := make(chan struct{})
+	for i := 0; i < 10; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for j := 0; j < 100; j++ {
+				_ = iface.NumEndpoints()
+				_ = iface.GetEndpoint(0x81)
+				_ = iface.GetInEndpoint(1)
+				_ = iface.GetOutEndpoint(1)
+				_ = iface.Endpoints()
+				_ = iface.Descriptor()
+				_ = iface.ClassDriver()
+			}
+		}()
+	}
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+}
+
+func TestConfigurationConcurrentAccess(t *testing.T) {
+	config := NewConfiguration(1)
+	for i := uint8(0); i < 4; i++ {
+		config.AddInterface(NewInterface(&InterfaceDescriptor{InterfaceNumber: i}))
+	}
+
+	done := make(chan struct{})
+	for i := 0; i < 10; i++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for j := 0; j < 100; j++ {
+				_ = config.NumInterfaces()
+				_ = config.GetInterface(0)
+				_ = config.Interfaces()
+				_ = config.Associations()
+				_ = config.Descriptor()
+				_ = config.IsSelfPowered()
+				_ = config.SupportsRemoteWakeup()
+			}
+		}()
+	}
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+}
+
+// =============================================================================
+// Benchmarks
+// =============================================================================
+
+func BenchmarkNewInterface(b *testing.B) {
+	desc := &InterfaceDescriptor{
+		InterfaceNumber:   0,
+		InterfaceClass:    ClassCDC,
+		InterfaceSubClass: 0x02,
+		InterfaceProtocol: 0x01,
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = NewInterface(desc)
+	}
+}
+
+func BenchmarkInterfaceAddEndpoint(b *testing.B) {
+	desc := &InterfaceDescriptor{InterfaceNumber: 0}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		iface := NewInterface(desc)
+		_ = iface.AddEndpoint(&Endpoint{Address: 0x81})
+	}
+}
+
+func BenchmarkInterfaceGetEndpoint(b *testing.B) {
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	for i := uint8(1); i <= 8; i++ {
+		iface.AddEndpoint(&Endpoint{Address: 0x80 | i})
+	}
+
+	b.Run("First", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = iface.GetEndpoint(0x81)
+		}
+	})
+
+	b.Run("Last", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = iface.GetEndpoint(0x88)
+		}
+	})
+
+	b.Run("NotFound", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = iface.GetEndpoint(0x8F)
+		}
+	})
+}
+
+func BenchmarkInterfaceEndpoints(b *testing.B) {
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	for i := uint8(1); i <= 8; i++ {
+		iface.AddEndpoint(&Endpoint{Address: 0x80 | i})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = iface.Endpoints()
+	}
+}
+
+func BenchmarkInterfaceNumEndpoints(b *testing.B) {
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	for i := uint8(1); i <= 4; i++ {
+		iface.AddEndpoint(&Endpoint{Address: 0x80 | i})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = iface.NumEndpoints()
+	}
+}
+
+func BenchmarkInterfaceRemoveEndpoint(b *testing.B) {
+	desc := &InterfaceDescriptor{InterfaceNumber: 0}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		iface := NewInterface(desc)
+		iface.AddEndpoint(&Endpoint{Address: 0x81})
+		b.StartTimer()
+		iface.RemoveEndpoint(0x81)
+	}
+}
+
+func BenchmarkInterfaceDescriptor(b *testing.B) {
+	iface := NewInterface(&InterfaceDescriptor{
+		InterfaceNumber:   0,
+		InterfaceClass:    ClassCDC,
+		InterfaceSubClass: 0x02,
+		InterfaceProtocol: 0x01,
+	})
+	for i := uint8(1); i <= 4; i++ {
+		iface.AddEndpoint(&Endpoint{Address: 0x80 | i})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = iface.Descriptor()
+	}
+}
+
+func BenchmarkInterfaceHandleSetup(b *testing.B) {
+	b.Run("NoDriver", func(b *testing.B) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		setup := &SetupPacket{}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, _ = iface.HandleSetup(setup, nil)
+		}
+	})
+
+	b.Run("WithDriver", func(b *testing.B) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		iface.SetClassDriver(&mockClassDriver{handleSetupResp: true})
+		setup := &SetupPacket{}
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, _ = iface.HandleSetup(setup, nil)
+		}
+	})
+}
+
+func BenchmarkInterfaceSetAlternate(b *testing.B) {
+	b.Run("NoDriver", func(b *testing.B) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = iface.SetAlternate(uint8(i & 0xFF))
+		}
+	})
+
+	b.Run("WithDriver", func(b *testing.B) {
+		iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+		iface.SetClassDriver(&mockClassDriver{})
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = iface.SetAlternate(uint8(i & 0xFF))
+		}
+	})
+}
+
+func BenchmarkInterfaceSetClassDriver(b *testing.B) {
+	desc := &InterfaceDescriptor{InterfaceNumber: 0}
+	driver := &mockClassDriver{}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		iface := NewInterface(desc)
+		_ = iface.SetClassDriver(driver)
+	}
+}
+
+func BenchmarkInterfaceClose(b *testing.B) {
+	desc := &InterfaceDescriptor{InterfaceNumber: 0}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		iface := NewInterface(desc)
+		iface.SetClassDriver(&mockClassDriver{})
+		b.StartTimer()
+		_ = iface.Close()
+	}
+}
+
+func BenchmarkNewConfiguration(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = NewConfiguration(1)
+	}
+}
+
+func BenchmarkConfigurationAddInterface(b *testing.B) {
+	desc := &InterfaceDescriptor{InterfaceNumber: 0}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		config := NewConfiguration(1)
+		_ = config.AddInterface(NewInterface(desc))
+	}
+}
+
+func BenchmarkConfigurationGetInterface(b *testing.B) {
+	config := NewConfiguration(1)
+	for i := uint8(0); i < 8; i++ {
+		config.AddInterface(NewInterface(&InterfaceDescriptor{InterfaceNumber: i}))
+	}
+
+	b.Run("First", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = config.GetInterface(0)
+		}
+	})
+
+	b.Run("Last", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = config.GetInterface(7)
+		}
+	})
+
+	b.Run("NotFound", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = config.GetInterface(20)
+		}
+	})
+}
+
+func BenchmarkConfigurationInterfaces(b *testing.B) {
+	config := NewConfiguration(1)
+	for i := uint8(0); i < 4; i++ {
+		config.AddInterface(NewInterface(&InterfaceDescriptor{InterfaceNumber: i}))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = config.Interfaces()
+	}
+}
+
+func BenchmarkConfigurationNumInterfaces(b *testing.B) {
+	config := NewConfiguration(1)
+	for i := uint8(0); i < 4; i++ {
+		config.AddInterface(NewInterface(&InterfaceDescriptor{InterfaceNumber: i}))
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = config.NumInterfaces()
+	}
+}
+
+func BenchmarkConfigurationAddAssociation(b *testing.B) {
+	assoc := &InterfaceAssociation{FirstInterface: 0, InterfaceCount: 2}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		config := NewConfiguration(1)
+		_ = config.AddAssociation(assoc)
+	}
+}
+
+func BenchmarkConfigurationAssociations(b *testing.B) {
+	config := NewConfiguration(1)
+	config.AddAssociation(&InterfaceAssociation{FirstInterface: 0, InterfaceCount: 2})
+	config.AddAssociation(&InterfaceAssociation{FirstInterface: 2, InterfaceCount: 2})
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = config.Associations()
+	}
+}
+
+func BenchmarkConfigurationDescriptor(b *testing.B) {
+	config := NewConfiguration(1)
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	for i := uint8(1); i <= 4; i++ {
+		iface.AddEndpoint(&Endpoint{Address: 0x80 | i})
+	}
+	config.AddInterface(iface)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = config.Descriptor()
+	}
+}
+
+func BenchmarkConfigurationMarshalTo(b *testing.B) {
+	config := NewConfiguration(1)
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	for i := uint8(1); i <= 4; i++ {
+		iface.AddEndpoint(&Endpoint{Address: 0x80 | i, Attributes: EndpointTypeBulk, MaxPacketSize: 512})
+	}
+	config.AddInterface(iface)
+
+	var buf [512]byte
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = config.MarshalTo(buf[:])
+	}
+}
+
+func BenchmarkConfigurationPowerAttributes(b *testing.B) {
+	config := NewConfiguration(1)
+
+	b.Run("SetSelfPowered", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			config.SetSelfPowered(true)
+		}
+	})
+
+	b.Run("IsSelfPowered", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = config.IsSelfPowered()
+		}
+	})
+
+	b.Run("SetRemoteWakeup", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			config.SetRemoteWakeup(true)
+		}
+	})
+
+	b.Run("SupportsRemoteWakeup", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = config.SupportsRemoteWakeup()
+		}
+	})
+}
+
+func BenchmarkConfigurationClose(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		config := NewConfiguration(1)
+		for j := uint8(0); j < 4; j++ {
+			iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: j})
+			config.AddInterface(iface)
+		}
+		b.StartTimer()
+		_ = config.Close()
+	}
+}

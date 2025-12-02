@@ -124,7 +124,7 @@ func (h *HostHAL) Init(ctx context.Context) error {
 		return fmt.Errorf("%w: %v", ErrFIFOCreate, err)
 	}
 
-	pkg.LogInfo(pkg.ComponentHAL, "host FIFO HAL initialized", "busDir", h.busDir)
+	pkg.LogDebug(pkg.ComponentHAL, "host FIFO HAL initialized", "busDir", h.busDir)
 	return nil
 }
 
@@ -134,7 +134,7 @@ func (h *HostHAL) Start() error {
 	h.wg.Add(1)
 	go h.pollDeviceDirectories()
 
-	pkg.LogInfo(pkg.ComponentHAL, "host FIFO HAL started")
+	pkg.LogDebug(pkg.ComponentHAL, "host FIFO HAL started")
 	return nil
 }
 
@@ -155,8 +155,13 @@ func (h *HostHAL) Stop() error {
 	}
 	h.deviceMu.Unlock()
 
-	pkg.LogInfo(pkg.ComponentHAL, "host FIFO HAL stopped")
+	pkg.LogDebug(pkg.ComponentHAL, "host FIFO HAL stopped")
 	return nil
+}
+
+// Close releases all resources associated with the HAL.
+func (h *HostHAL) Close() error {
+	return h.Stop()
 }
 
 // NumPorts returns the number of root hub ports (simulated as 1).
@@ -367,6 +372,18 @@ func (h *HostHAL) SetDeviceAddress(ctx context.Context, newAddr hal.DeviceAddres
 	return nil
 }
 
+// ClaimInterface claims exclusive access to an interface on a device.
+// FIFO HAL does not require interface claiming - this is a no-op.
+func (h *HostHAL) ClaimInterface(addr hal.DeviceAddress, iface uint8) error {
+	return nil
+}
+
+// ReleaseInterface releases a previously claimed interface.
+// FIFO HAL does not require interface claiming - this is a no-op.
+func (h *HostHAL) ReleaseInterface(addr hal.DeviceAddress, iface uint8) error {
+	return nil
+}
+
 // WaitForConnection waits for a device to connect.
 func (h *HostHAL) WaitForConnection(ctx context.Context) (int, error) {
 	for {
@@ -385,7 +402,7 @@ func (h *HostHAL) WaitForConnection(ctx context.Context) (int, error) {
 			h.device = dev
 			h.deviceMu.Unlock()
 
-			pkg.LogInfo(pkg.ComponentHAL, "device connected", "port", dev.port, "speed", dev.speed, "dir", dev.dir)
+			pkg.LogDebug(pkg.ComponentHAL, "device connected", "port", dev.port, "speed", dev.speed, "dir", dev.dir)
 			return dev.port, nil
 		}
 	}
@@ -407,7 +424,7 @@ func (h *HostHAL) WaitForDisconnection(ctx context.Context) (int, error) {
 			}
 			h.deviceMu.Unlock()
 
-			pkg.LogInfo(pkg.ComponentHAL, "device disconnected", "port", port)
+			pkg.LogDebug(pkg.ComponentHAL, "device disconnected", "port", port)
 			return port, nil
 		}
 	}
