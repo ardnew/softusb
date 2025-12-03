@@ -15,7 +15,7 @@ var (
 
 // enumerateDevice performs the USB enumeration sequence for a new device.
 func (h *Host) enumerateDevice(port int) (*Device, error) {
-	pkg.LogInfo(pkg.ComponentHost, "starting enumeration", "port", port)
+	pkg.LogDebug(pkg.ComponentHost, "starting enumeration", "port", port)
 
 	// Get port speed
 	speed := h.hal.PortSpeed(port)
@@ -77,7 +77,7 @@ func (h *Host) enumerateDevice(port int) (*Device, error) {
 		return nil, err
 	}
 
-	pkg.LogInfo(pkg.ComponentHost, "assigned address", "address", address)
+	pkg.LogDebug(pkg.ComponentHost, "assigned address", "address", address)
 
 	// Update device address
 	dev.address = address
@@ -103,7 +103,7 @@ func (h *Host) enumerateDevice(port int) (*Device, error) {
 	// Parse device descriptor
 	dev.parseDeviceDescriptor(buf[:n])
 
-	pkg.LogInfo(pkg.ComponentHost, "device descriptor",
+	pkg.LogDebug(pkg.ComponentHost, "device descriptor",
 		"vendorID", dev.descriptor.VendorID,
 		"productID", dev.descriptor.ProductID,
 		"class", dev.descriptor.DeviceClass)
@@ -141,7 +141,7 @@ func (h *Host) enumerateDevice(port int) (*Device, error) {
 	// Parse configuration tree
 	dev.parseConfigurationTree(buf[:n])
 
-	pkg.LogInfo(pkg.ComponentHost, "configuration descriptor",
+	pkg.LogDebug(pkg.ComponentHost, "configuration descriptor",
 		"numInterfaces", dev.config.NumInterfaces,
 		"configValue", dev.config.ConfigurationValue)
 

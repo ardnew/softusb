@@ -177,7 +177,7 @@ func (d *Device) setState(newState State) {
 	d.mutex.Unlock()
 
 	if oldState != newState {
-		pkg.LogInfo(pkg.ComponentDevice, "device state changed",
+		pkg.LogDebug(pkg.ComponentDevice, "device state changed",
 			"from", oldState.String(),
 			"to", newState.String())
 		if callback != nil {
@@ -243,7 +243,7 @@ func (d *Device) Reset() {
 		callback()
 	}
 
-	pkg.LogInfo(pkg.ComponentDevice, "device reset")
+	pkg.LogDebug(pkg.ComponentDevice, "device reset")
 }
 
 // SetAddress handles SET_ADDRESS request.
@@ -267,7 +267,7 @@ func (d *Device) SetAddress(address uint8) error {
 		callback(address)
 	}
 
-	pkg.LogInfo(pkg.ComponentDevice, "device address set",
+	pkg.LogDebug(pkg.ComponentDevice, "device address set",
 		"address", address)
 
 	return nil
@@ -312,7 +312,7 @@ func (d *Device) SetConfiguration(value uint8) error {
 		callback(value)
 	}
 
-	pkg.LogInfo(pkg.ComponentDevice, "device configured",
+	pkg.LogDebug(pkg.ComponentDevice, "device configured",
 		"configuration", value)
 
 	return nil
@@ -331,7 +331,7 @@ func (d *Device) Suspend() {
 		callback()
 	}
 
-	pkg.LogInfo(pkg.ComponentDevice, "device suspended")
+	pkg.LogDebug(pkg.ComponentDevice, "device suspended")
 }
 
 // Resume handles USB resume.
@@ -351,7 +351,7 @@ func (d *Device) Resume() {
 		callback()
 	}
 
-	pkg.LogInfo(pkg.ComponentDevice, "device resumed")
+	pkg.LogDebug(pkg.ComponentDevice, "device resumed")
 }
 
 // EnableRemoteWakeup enables remote wakeup capability.

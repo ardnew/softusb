@@ -69,7 +69,7 @@ func (h *Host) Start(ctx context.Context) error {
 	h.running = true
 	h.mutex.Unlock()
 
-	pkg.LogInfo(pkg.ComponentHost, "host started")
+	pkg.LogDebug(pkg.ComponentHost, "host started")
 
 	// Start device monitoring
 	go h.monitorDevices()
@@ -104,7 +104,7 @@ func (h *Host) Stop() error {
 		return err
 	}
 
-	pkg.LogInfo(pkg.ComponentHost, "host stopped")
+	pkg.LogDebug(pkg.ComponentHost, "host stopped")
 	return nil
 }
 
@@ -186,7 +186,7 @@ func (h *Host) monitorDevices() {
 			continue
 		}
 
-		pkg.LogInfo(pkg.ComponentHost, "device connected", "port", port)
+		pkg.LogDebug(pkg.ComponentHost, "device connected", "port", port)
 
 		// Enumerate the device
 		dev, err := h.enumerateDevice(port)
@@ -215,7 +215,7 @@ func (h *Host) monitorDevices() {
 				cb(dev)
 			}
 
-			pkg.LogInfo(pkg.ComponentHost, "device enumerated",
+			pkg.LogDebug(pkg.ComponentHost, "device enumerated",
 				"address", dev.address,
 				"vendor", dev.descriptor.VendorID,
 				"product", dev.descriptor.ProductID)
@@ -240,7 +240,7 @@ func (h *Host) monitorDisconnection(port int, dev *Device) {
 		return
 	}
 
-	pkg.LogInfo(pkg.ComponentHost, "device disconnected",
+	pkg.LogDebug(pkg.ComponentHost, "device disconnected",
 		"port", port,
 		"address", dev.address)
 

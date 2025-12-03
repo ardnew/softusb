@@ -137,7 +137,7 @@ func (a *ACM) Init(iface *device.Interface) error {
 	if a.controlIface != nil && a.dataIface != nil &&
 		a.dataInEP != nil && a.dataOutEP != nil {
 		a.configured = true
-		pkg.LogInfo(pkg.ComponentDevice, "CDC-ACM configured",
+		pkg.LogDebug(pkg.ComponentDevice, "CDC-ACM configured",
 			"dataIn", a.dataInEP.Address,
 			"dataOut", a.dataOutEP.Address)
 	}

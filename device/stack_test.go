@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -454,5 +455,468 @@ func TestErrorToStatus(t *testing.T) {
 		if got := errorToStatus(tt.err); got != tt.want {
 			t.Errorf("errorToStatus(%v) = %v, want %v", tt.err, got, tt.want)
 		}
+	}
+}
+
+// =============================================================================
+// benchHAL - Minimal mock HAL for benchmarking
+// =============================================================================
+
+// benchHAL is a minimal HAL implementation for benchmarking.
+// It has zero latency by default but can simulate configurable delays.
+type benchHAL struct {
+	connected bool
+	speed     hal.Speed
+	latency   time.Duration // Optional latency for realistic I/O simulation
+}
+
+func newBenchHAL(latency time.Duration) *benchHAL {
+	return &benchHAL{
+		connected: true,
+		speed:     hal.SpeedHigh,
+		latency:   latency,
+	}
+}
+
+func (b *benchHAL) Init(ctx context.Context) error {
+	return nil
+}
+
+func (b *benchHAL) Start() error {
+	return nil
+}
+
+func (b *benchHAL) Stop() error {
+	return nil
+}
+
+func (b *benchHAL) SetAddress(address uint8) error {
+	return nil
+}
+
+func (b *benchHAL) ConfigureEndpoints(endpoints []hal.EndpointConfig) error {
+	return nil
+}
+
+func (b *benchHAL) ReadSetup(ctx context.Context, out *hal.SetupPacket) error {
+	if b.latency > 0 {
+		time.Sleep(b.latency)
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		// Return a minimal setup packet
+		out.RequestType = 0x80 // Device-to-host
+		out.Request = 0x06     // GET_DESCRIPTOR
+		out.Value = 0x0100     // Device descriptor
+		out.Index = 0
+		out.Length = 18
+		return nil
+	}
+}
+
+func (b *benchHAL) WriteEP0(ctx context.Context, data []byte) error {
+	if b.latency > 0 {
+		time.Sleep(b.latency)
+	}
+	return nil
+}
+
+func (b *benchHAL) ReadEP0(ctx context.Context, buf []byte) (int, error) {
+	if b.latency > 0 {
+		time.Sleep(b.latency)
+	}
+	return 0, nil
+}
+
+func (b *benchHAL) StallEP0() error {
+	return nil
+}
+
+func (b *benchHAL) AckEP0() error {
+	return nil
+}
+
+func (b *benchHAL) Read(ctx context.Context, address uint8, buf []byte) (int, error) {
+	if b.latency > 0 {
+		time.Sleep(b.latency)
+	}
+	// Simulate reading data - fill buffer with test pattern
+	for i := range buf {
+		buf[i] = byte(i)
+	}
+	return len(buf), nil
+}
+
+func (b *benchHAL) Write(ctx context.Context, address uint8, data []byte) (int, error) {
+	if b.latency > 0 {
+		time.Sleep(b.latency)
+	}
+	return len(data), nil
+}
+
+func (b *benchHAL) Stall(address uint8) error {
+	return nil
+}
+
+func (b *benchHAL) ClearStall(address uint8) error {
+	return nil
+}
+
+func (b *benchHAL) IsConnected() bool {
+	return b.connected
+}
+
+func (b *benchHAL) GetSpeed() hal.Speed {
+	return b.speed
+}
+
+func (b *benchHAL) WaitConnect(ctx context.Context) error {
+	if b.latency > 0 {
+		time.Sleep(b.latency)
+	}
+	return nil
+}
+
+func (b *benchHAL) WaitDisconnect(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// =============================================================================
+// Edge Case Tests
+// =============================================================================
+
+// TestStack_EndpointIndex tests endpointIndex calculation for all addresses
+func TestStack_EndpointIndex(t *testing.T) {
+	tests := []struct {
+		address uint8
+		want    int
+	}{
+		// OUT endpoints (0-15)
+		{0x00, 0},
+		{0x01, 1},
+		{0x07, 7},
+		{0x0F, 15},
+
+		// IN endpoints (16-31)
+		{0x80, 16},
+		{0x81, 17},
+		{0x87, 23},
+		{0x8F, 31},
+	}
+
+	for _, tt := range tests {
+		got := endpointIndex(tt.address)
+		if got != tt.want {
+			t.Errorf("endpointIndex(0x%02X) = %d, want %d", tt.address, got, tt.want)
+		}
+	}
+}
+
+// TestStack_SubmitTransfer_PendingLimit tests MaxPendingTransfersPerEndpoint limit
+func TestStack_SubmitTransfer_PendingLimit(t *testing.T) {
+	dev := NewDevice(&DeviceDescriptor{MaxPacketSize0: 64})
+	config := NewConfiguration(1)
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	ep := &Endpoint{Address: 0x81, Attributes: EndpointTypeBulk, MaxPacketSize: 64}
+	iface.AddEndpoint(ep)
+	config.AddInterface(iface)
+	dev.AddConfiguration(config)
+	dev.Reset()
+	dev.SetAddress(1)
+	dev.SetConfiguration(1)
+
+	hal := newMockHAL()
+	stack := NewStack(dev, hal)
+
+	ctx := context.Background()
+	stack.Start(ctx)
+	defer stack.Stop()
+
+	idx := endpointIndex(0x81)
+
+	// Fill pending queue to capacity
+	stack.transferMutex.Lock()
+	for i := 0; i < MaxPendingTransfersPerEndpoint; i++ {
+		stack.pendingTransfers[idx][i] = NewBulkTransfer(ep, nil)
+	}
+	stack.pendingTransferCounts[idx] = MaxPendingTransfersPerEndpoint
+	stack.transferMutex.Unlock()
+
+	// Should fail with pending limit exceeded
+	transfer := NewBulkTransfer(ep, nil)
+	err := stack.SubmitTransfer(transfer)
+	if err != pkg.ErrNoResources {
+		t.Errorf("error = %v, want %v", err, pkg.ErrNoResources)
+	}
+}
+
+// TestStack_DoubleStop tests that Stop is idempotent
+func TestStack_DoubleStop(t *testing.T) {
+	dev := NewDevice(&DeviceDescriptor{MaxPacketSize0: 64})
+	hal := newMockHAL()
+	stack := NewStack(dev, hal)
+
+	ctx := context.Background()
+	stack.Start(ctx)
+
+	err := stack.Stop()
+	if err != nil {
+		t.Fatalf("first Stop() error = %v", err)
+	}
+
+	// Second stop should be fine (no panic)
+	err = stack.Stop()
+	if err != nil {
+		t.Fatalf("second Stop() error = %v", err)
+	}
+}
+
+// TestStack_StopNotStarted tests Stop when not started
+func TestStack_StopNotStarted(t *testing.T) {
+	dev := NewDevice(&DeviceDescriptor{MaxPacketSize0: 64})
+	hal := newMockHAL()
+	stack := NewStack(dev, hal)
+
+	err := stack.Stop()
+	// Should be a no-op or error but not panic
+	_ = err
+}
+
+// TestStack_CancelAllTransfers tests CancelTransfers on multiple endpoints
+func TestStack_CancelAllTransfers(t *testing.T) {
+	dev := NewDevice(&DeviceDescriptor{MaxPacketSize0: 64})
+	config := NewConfiguration(1)
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	ep1 := &Endpoint{Address: 0x81, Attributes: EndpointTypeBulk}
+	ep2 := &Endpoint{Address: 0x02, Attributes: EndpointTypeBulk}
+	iface.AddEndpoint(ep1)
+	iface.AddEndpoint(ep2)
+	config.AddInterface(iface)
+	dev.AddConfiguration(config)
+	dev.Reset()
+	dev.SetAddress(1)
+	dev.SetConfiguration(1)
+
+	hal := newMockHAL()
+	stack := NewStack(dev, hal)
+
+	ctx := context.Background()
+	stack.Start(ctx)
+	defer stack.Stop()
+
+	// Add transfers to different endpoints
+	t1 := NewBulkTransfer(ep1, nil)
+	t2 := NewBulkTransfer(ep2, nil)
+
+	stack.transferMutex.Lock()
+	stack.pendingTransfers[endpointIndex(0x81)][0] = t1
+	stack.pendingTransferCounts[endpointIndex(0x81)] = 1
+	stack.pendingTransfers[endpointIndex(0x02)][0] = t2
+	stack.pendingTransferCounts[endpointIndex(0x02)] = 1
+	stack.transferMutex.Unlock()
+
+	// Cancel transfers for each endpoint
+	stack.CancelTransfers(0x81)
+	stack.CancelTransfers(0x02)
+
+	if !t1.IsCancelled() {
+		t.Error("transfer 1 should be cancelled")
+	}
+	if !t2.IsCancelled() {
+		t.Error("transfer 2 should be cancelled")
+	}
+}
+
+// =============================================================================
+// Benchmarks
+// =============================================================================
+
+func BenchmarkNewStack(b *testing.B) {
+	dev := NewDevice(&DeviceDescriptor{MaxPacketSize0: 64})
+	hal := newBenchHAL(0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = NewStack(dev, hal)
+	}
+}
+
+func BenchmarkStack_StartStop(b *testing.B) {
+	dev := NewDevice(&DeviceDescriptor{MaxPacketSize0: 64})
+	hal := newBenchHAL(0)
+	ctx := context.Background()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		stack := NewStack(dev, hal)
+		_ = stack.Start(ctx)
+		_ = stack.Stop()
+	}
+}
+
+func BenchmarkStack_SubmitTransfer(b *testing.B) {
+	dev := NewDevice(&DeviceDescriptor{MaxPacketSize0: 64})
+	config := NewConfiguration(1)
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	ep := &Endpoint{Address: 0x81, Attributes: EndpointTypeBulk, MaxPacketSize: 512}
+	iface.AddEndpoint(ep)
+	config.AddInterface(iface)
+	dev.AddConfiguration(config)
+	dev.Reset()
+	dev.SetAddress(1)
+	dev.SetConfiguration(1)
+
+	bufferSizes := []int{8, 64, 512, 1024}
+
+	b.Run("benchHAL", func(b *testing.B) {
+		for _, size := range bufferSizes {
+			b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+				hal := newBenchHAL(0)
+				stack := NewStack(dev, hal)
+				ctx := context.Background()
+				stack.Start(ctx)
+				defer stack.Stop()
+
+				data := make([]byte, size)
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					transfer := NewBulkTransfer(ep, data)
+					_ = stack.SubmitTransfer(transfer)
+				}
+			})
+		}
+	})
+}
+
+func BenchmarkStack_Write(b *testing.B) {
+	dev := NewDevice(&DeviceDescriptor{MaxPacketSize0: 64})
+	config := NewConfiguration(1)
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	ep := &Endpoint{Address: 0x81, Attributes: EndpointTypeBulk, MaxPacketSize: 512}
+	iface.AddEndpoint(ep)
+	config.AddInterface(iface)
+	dev.AddConfiguration(config)
+	dev.Reset()
+	dev.SetAddress(1)
+	dev.SetConfiguration(1)
+
+	bufferSizes := []int{8, 64, 512, 1024}
+	latencies := []time.Duration{0, 10 * time.Microsecond}
+
+	for _, latency := range latencies {
+		latencyName := "noLatency"
+		if latency > 0 {
+			latencyName = "10µs"
+		}
+		b.Run(latencyName, func(b *testing.B) {
+			for _, size := range bufferSizes {
+				b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+					hal := newBenchHAL(latency)
+					stack := NewStack(dev, hal)
+					ctx := context.Background()
+					stack.Start(ctx)
+					defer stack.Stop()
+
+					data := make([]byte, size)
+					b.ReportAllocs()
+					b.ResetTimer()
+					for i := 0; i < b.N; i++ {
+						_, _ = stack.Write(ctx, ep, data)
+					}
+				})
+			}
+		})
+	}
+}
+
+func BenchmarkStack_Read(b *testing.B) {
+	dev := NewDevice(&DeviceDescriptor{MaxPacketSize0: 64})
+	config := NewConfiguration(1)
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	ep := &Endpoint{Address: 0x02, Attributes: EndpointTypeBulk, MaxPacketSize: 512}
+	iface.AddEndpoint(ep)
+	config.AddInterface(iface)
+	dev.AddConfiguration(config)
+	dev.Reset()
+	dev.SetAddress(1)
+	dev.SetConfiguration(1)
+
+	bufferSizes := []int{8, 64, 512, 1024}
+
+	for _, size := range bufferSizes {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			hal := newBenchHAL(0)
+			stack := NewStack(dev, hal)
+			ctx := context.Background()
+			stack.Start(ctx)
+			defer stack.Stop()
+
+			buf := make([]byte, size)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_, _ = stack.Read(ctx, ep, buf)
+			}
+		})
+	}
+}
+
+func BenchmarkStack_CancelTransfers(b *testing.B) {
+	dev := NewDevice(&DeviceDescriptor{MaxPacketSize0: 64})
+	config := NewConfiguration(1)
+	iface := NewInterface(&InterfaceDescriptor{InterfaceNumber: 0})
+	ep := &Endpoint{Address: 0x81, Attributes: EndpointTypeBulk}
+	iface.AddEndpoint(ep)
+	config.AddInterface(iface)
+	dev.AddConfiguration(config)
+	dev.Reset()
+	dev.SetAddress(1)
+	dev.SetConfiguration(1)
+
+	hal := newBenchHAL(0)
+	stack := NewStack(dev, hal)
+	ctx := context.Background()
+	stack.Start(ctx)
+	defer stack.Stop()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		stack.CancelTransfers(0x81)
+	}
+}
+
+func BenchmarkEndpointIndex(b *testing.B) {
+	addresses := []uint8{0x00, 0x01, 0x0F, 0x80, 0x81, 0x8F}
+	for _, addr := range addresses {
+		b.Run(fmt.Sprintf("0x%02X", addr), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = endpointIndex(addr)
+			}
+		})
+	}
+}
+
+func BenchmarkErrorToStatus(b *testing.B) {
+	errors := []error{nil, pkg.ErrStall, pkg.ErrNAK, pkg.ErrTimeout, pkg.ErrCancelled}
+	for _, err := range errors {
+		name := "nil"
+		if err != nil {
+			name = err.Error()
+		}
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = errorToStatus(err)
+			}
+		})
 	}
 }

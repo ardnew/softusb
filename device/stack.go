@@ -103,7 +103,7 @@ func (s *Stack) Start(ctx context.Context) error {
 	s.running = true
 	s.mutex.Unlock()
 
-	pkg.LogInfo(pkg.ComponentStack, "device stack started")
+	pkg.LogDebug(pkg.ComponentStack, "device stack started")
 
 	// Start the control transfer handler
 	go s.controlLoop()
@@ -129,7 +129,7 @@ func (s *Stack) Stop() error {
 		return err
 	}
 
-	pkg.LogInfo(pkg.ComponentStack, "device stack stopped")
+	pkg.LogDebug(pkg.ComponentStack, "device stack stopped")
 	return nil
 }
 

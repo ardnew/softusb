@@ -32,7 +32,7 @@ var (
 )
 
 func init() {
-	logLevel.Set(slog.LevelInfo)
+	logLevel.Set(slog.LevelWarn)
 	DefaultLogger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: logLevel,
 	}))

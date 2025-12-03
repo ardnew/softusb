@@ -1,6 +1,7 @@
 package device
 
 import (
+	"sync"
 	"testing"
 )
 
@@ -387,5 +388,529 @@ func TestGetInterfaceSetup(t *testing.T) {
 	}
 	if pkt.Length != 1 {
 		t.Errorf("Length = %d, want 1", pkt.Length)
+	}
+}
+
+// =============================================================================
+// Edge Case Tests
+// =============================================================================
+
+func TestParseSetupPacket_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    []byte
+		want    SetupPacket
+		wantErr bool
+	}{
+		{
+			name:    "empty data",
+			data:    []byte{},
+			wantErr: true,
+		},
+		{
+			name:    "exactly 7 bytes (one short)",
+			data:    []byte{0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12},
+			wantErr: true,
+		},
+		{
+			name: "exactly 8 bytes",
+			data: []byte{0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00},
+			want: SetupPacket{
+				RequestType: 0x80,
+				Request:     0x06,
+				Value:       0x0100,
+				Index:       0x0000,
+				Length:      18,
+			},
+		},
+		{
+			name: "more than 8 bytes (extra ignored)",
+			data: []byte{0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00, 0xFF, 0xFF},
+			want: SetupPacket{
+				RequestType: 0x80,
+				Request:     0x06,
+				Value:       0x0100,
+				Index:       0x0000,
+				Length:      18,
+			},
+		},
+		{
+			name: "max wValue (0xFFFF)",
+			data: []byte{0x80, 0x06, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00},
+			want: SetupPacket{
+				RequestType: 0x80,
+				Request:     0x06,
+				Value:       0xFFFF,
+				Index:       0x0000,
+				Length:      0,
+			},
+		},
+		{
+			name: "max wIndex (0xFFFF)",
+			data: []byte{0x80, 0x06, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00},
+			want: SetupPacket{
+				RequestType: 0x80,
+				Request:     0x06,
+				Value:       0x0000,
+				Index:       0xFFFF,
+				Length:      0,
+			},
+		},
+		{
+			name: "max wLength (0xFFFF)",
+			data: []byte{0x80, 0x06, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF},
+			want: SetupPacket{
+				RequestType: 0x80,
+				Request:     0x06,
+				Value:       0x0000,
+				Index:       0x0000,
+				Length:      0xFFFF,
+			},
+		},
+		{
+			name: "all max values",
+			data: []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+			want: SetupPacket{
+				RequestType: 0xFF,
+				Request:     0xFF,
+				Value:       0xFFFF,
+				Index:       0xFFFF,
+				Length:      0xFFFF,
+			},
+		},
+		{
+			name: "all zeros",
+			data: []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+			want: SetupPacket{
+				RequestType: 0x00,
+				Request:     0x00,
+				Value:       0x0000,
+				Index:       0x0000,
+				Length:      0,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got SetupPacket
+			err := ParseSetupPacket(tt.data, &got)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ParseSetupPacket() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr {
+				return
+			}
+			if got != tt.want {
+				t.Errorf("ParseSetupPacket() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSetupPacketMarshalTo_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name    string
+		pkt     SetupPacket
+		bufSize int
+		wantN   int
+	}{
+		{
+			name:    "buffer too small (0 bytes)",
+			pkt:     SetupPacket{RequestType: 0x80},
+			bufSize: 0,
+			wantN:   0,
+		},
+		{
+			name:    "buffer too small (7 bytes)",
+			pkt:     SetupPacket{RequestType: 0x80},
+			bufSize: 7,
+			wantN:   0,
+		},
+		{
+			name:    "buffer exactly 8 bytes",
+			pkt:     SetupPacket{RequestType: 0x80},
+			bufSize: 8,
+			wantN:   8,
+		},
+		{
+			name:    "buffer larger than needed",
+			pkt:     SetupPacket{RequestType: 0x80},
+			bufSize: 64,
+			wantN:   8,
+		},
+		{
+			name: "max values",
+			pkt: SetupPacket{
+				RequestType: 0xFF,
+				Request:     0xFF,
+				Value:       0xFFFF,
+				Index:       0xFFFF,
+				Length:      0xFFFF,
+			},
+			bufSize: 8,
+			wantN:   8,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := make([]byte, tt.bufSize)
+			n := tt.pkt.MarshalTo(buf)
+			if n != tt.wantN {
+				t.Errorf("MarshalTo() = %d, want %d", n, tt.wantN)
+			}
+
+			// Verify round-trip for successful marshals
+			if n == SetupPacketSize {
+				var parsed SetupPacket
+				if err := ParseSetupPacket(buf, &parsed); err != nil {
+					t.Errorf("round-trip ParseSetupPacket() error = %v", err)
+				} else if parsed != tt.pkt {
+					t.Errorf("round-trip failed: got %+v, want %+v", parsed, tt.pkt)
+				}
+			}
+		})
+	}
+}
+
+func TestSetupPacket_AllDirectionTypeCombinations(t *testing.T) {
+	// Test all 16 direction/type/recipient combinations
+	directions := []struct {
+		name  string
+		value uint8
+		isD2H bool
+	}{
+		{"H2D", RequestDirectionHostToDevice, false},
+		{"D2H", RequestDirectionDeviceToHost, true},
+	}
+
+	types := []struct {
+		name     string
+		value    uint8
+		isStd    bool
+		isClass  bool
+		isVendor bool
+	}{
+		{"Standard", RequestTypeStandard, true, false, false},
+		{"Class", RequestTypeClass, false, true, false},
+		{"Vendor", RequestTypeVendor, false, false, true},
+		{"Reserved", 0x60, false, false, false}, // Reserved type
+	}
+
+	recipients := []struct {
+		name    string
+		value   uint8
+		isDev   bool
+		isIface bool
+		isEP    bool
+	}{
+		{"Device", RequestRecipientDevice, true, false, false},
+		{"Interface", RequestRecipientInterface, false, true, false},
+		{"Endpoint", RequestRecipientEndpoint, false, false, true},
+		{"Other", RequestRecipientOther, false, false, false},
+	}
+
+	for _, dir := range directions {
+		for _, typ := range types {
+			for _, recip := range recipients {
+				name := dir.name + "_" + typ.name + "_" + recip.name
+				requestType := dir.value | typ.value | recip.value
+
+				t.Run(name, func(t *testing.T) {
+					pkt := &SetupPacket{RequestType: requestType}
+
+					if got := pkt.IsDeviceToHost(); got != dir.isD2H {
+						t.Errorf("IsDeviceToHost() = %v, want %v", got, dir.isD2H)
+					}
+					if got := pkt.IsHostToDevice(); got != !dir.isD2H {
+						t.Errorf("IsHostToDevice() = %v, want %v", got, !dir.isD2H)
+					}
+					if got := pkt.IsStandard(); got != typ.isStd {
+						t.Errorf("IsStandard() = %v, want %v", got, typ.isStd)
+					}
+					if got := pkt.IsClass(); got != typ.isClass {
+						t.Errorf("IsClass() = %v, want %v", got, typ.isClass)
+					}
+					if got := pkt.IsVendor(); got != typ.isVendor {
+						t.Errorf("IsVendor() = %v, want %v", got, typ.isVendor)
+					}
+					if got := pkt.IsDeviceRecipient(); got != recip.isDev {
+						t.Errorf("IsDeviceRecipient() = %v, want %v", got, recip.isDev)
+					}
+					if got := pkt.IsInterfaceRecipient(); got != recip.isIface {
+						t.Errorf("IsInterfaceRecipient() = %v, want %v", got, recip.isIface)
+					}
+					if got := pkt.IsEndpointRecipient(); got != recip.isEP {
+						t.Errorf("IsEndpointRecipient() = %v, want %v", got, recip.isEP)
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSetupPacket_DescriptorFieldsBoundary(t *testing.T) {
+	tests := []struct {
+		name      string
+		value     uint16
+		wantType  uint8
+		wantIndex uint8
+	}{
+		{"type=0,index=0", 0x0000, 0x00, 0x00},
+		{"type=FF,index=0", 0xFF00, 0xFF, 0x00},
+		{"type=0,index=FF", 0x00FF, 0x00, 0xFF},
+		{"type=FF,index=FF", 0xFFFF, 0xFF, 0xFF},
+		{"type=01,index=05", 0x0105, 0x01, 0x05},
+		{"type=03,index=01", 0x0301, 0x03, 0x01},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pkt := &SetupPacket{Value: tt.value}
+			if got := pkt.DescriptorType(); got != tt.wantType {
+				t.Errorf("DescriptorType() = 0x%02X, want 0x%02X", got, tt.wantType)
+			}
+			if got := pkt.DescriptorIndex(); got != tt.wantIndex {
+				t.Errorf("DescriptorIndex() = 0x%02X, want 0x%02X", got, tt.wantIndex)
+			}
+		})
+	}
+}
+
+func TestSetupPacket_ConcurrentAccess(t *testing.T) {
+	// Verify that SetupPacket methods are safe for concurrent read access
+	pkt := &SetupPacket{
+		RequestType: 0xA1,
+		Request:     0x21,
+		Value:       0x0301,
+		Index:       0x0002,
+		Length:      64,
+	}
+
+	const goroutines = 10
+	const iterations = 1000
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = pkt.Direction()
+				_ = pkt.Type()
+				_ = pkt.Recipient()
+				_ = pkt.IsDeviceToHost()
+				_ = pkt.IsClass()
+				_ = pkt.DescriptorType()
+				_ = pkt.DescriptorIndex()
+				_ = pkt.String()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+// =============================================================================
+// Benchmarks
+// =============================================================================
+
+func BenchmarkSetupPacket_Parse(b *testing.B) {
+	benchmarks := []struct {
+		name string
+		data []byte
+	}{
+		{
+			"GetDescriptor/Device",
+			[]byte{0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x12, 0x00},
+		},
+		{
+			"GetDescriptor/Configuration",
+			[]byte{0x80, 0x06, 0x00, 0x02, 0x00, 0x00, 0xFF, 0x00},
+		},
+		{
+			"GetDescriptor/String",
+			[]byte{0x80, 0x06, 0x01, 0x03, 0x09, 0x04, 0xFF, 0x00},
+		},
+		{
+			"SetAddress",
+			[]byte{0x00, 0x05, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00},
+		},
+		{
+			"SetConfiguration",
+			[]byte{0x00, 0x09, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00},
+		},
+		{
+			"ClassRequest",
+			[]byte{0xA1, 0x21, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00},
+		},
+		{
+			"VendorRequest",
+			[]byte{0xC0, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+		},
+	}
+
+	for _, bb := range benchmarks {
+		b.Run(bb.name, func(b *testing.B) {
+			b.ReportAllocs()
+			var pkt SetupPacket
+			for i := 0; i < b.N; i++ {
+				_ = ParseSetupPacket(bb.data, &pkt)
+			}
+		})
+	}
+}
+
+func BenchmarkSetupPacket_MarshalTo(b *testing.B) {
+	benchmarks := []struct {
+		name string
+		pkt  SetupPacket
+	}{
+		{
+			"GetDescriptor/Device",
+			SetupPacket{
+				RequestType: 0x80,
+				Request:     0x06,
+				Value:       0x0100,
+				Index:       0x0000,
+				Length:      18,
+			},
+		},
+		{
+			"SetAddress",
+			SetupPacket{
+				RequestType: 0x00,
+				Request:     0x05,
+				Value:       5,
+				Index:       0,
+				Length:      0,
+			},
+		},
+		{
+			"MaxValues",
+			SetupPacket{
+				RequestType: 0xFF,
+				Request:     0xFF,
+				Value:       0xFFFF,
+				Index:       0xFFFF,
+				Length:      0xFFFF,
+			},
+		},
+	}
+
+	for _, bb := range benchmarks {
+		b.Run(bb.name, func(b *testing.B) {
+			b.ReportAllocs()
+			var buf [SetupPacketSize]byte
+			for i := 0; i < b.N; i++ {
+				_ = bb.pkt.MarshalTo(buf[:])
+			}
+		})
+	}
+}
+
+func BenchmarkSetupPacket_Direction(b *testing.B) {
+	b.ReportAllocs()
+	pkt := &SetupPacket{RequestType: 0x80}
+	for i := 0; i < b.N; i++ {
+		_ = pkt.Direction()
+	}
+}
+
+func BenchmarkSetupPacket_Type(b *testing.B) {
+	b.ReportAllocs()
+	pkt := &SetupPacket{RequestType: 0xA1}
+	for i := 0; i < b.N; i++ {
+		_ = pkt.Type()
+	}
+}
+
+func BenchmarkSetupPacket_Recipient(b *testing.B) {
+	b.ReportAllocs()
+	pkt := &SetupPacket{RequestType: 0x02}
+	for i := 0; i < b.N; i++ {
+		_ = pkt.Recipient()
+	}
+}
+
+func BenchmarkSetupPacket_DescriptorType(b *testing.B) {
+	b.ReportAllocs()
+	pkt := &SetupPacket{Value: 0x0301}
+	for i := 0; i < b.N; i++ {
+		_ = pkt.DescriptorType()
+	}
+}
+
+func BenchmarkSetupPacket_String(b *testing.B) {
+	benchmarks := []struct {
+		name string
+		pkt  SetupPacket
+	}{
+		{
+			"Standard/Device/IN",
+			SetupPacket{RequestType: 0x80, Request: 0x06, Value: 0x0100},
+		},
+		{
+			"Class/Interface/OUT",
+			SetupPacket{RequestType: 0x21, Request: 0x20, Value: 0x0000},
+		},
+		{
+			"Vendor/Endpoint/IN",
+			SetupPacket{RequestType: 0xC2, Request: 0x01, Value: 0xFFFF},
+		},
+	}
+
+	for _, bb := range benchmarks {
+		b.Run(bb.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = bb.pkt.String()
+			}
+		})
+	}
+}
+
+func BenchmarkSetupPacket_RoundTrip(b *testing.B) {
+	b.ReportAllocs()
+	pkt := SetupPacket{
+		RequestType: 0x80,
+		Request:     0x06,
+		Value:       0x0100,
+		Index:       0x0000,
+		Length:      18,
+	}
+	var buf [SetupPacketSize]byte
+	var parsed SetupPacket
+
+	for i := 0; i < b.N; i++ {
+		pkt.MarshalTo(buf[:])
+		_ = ParseSetupPacket(buf[:], &parsed)
+	}
+}
+
+func BenchmarkGetDescriptorSetup(b *testing.B) {
+	b.ReportAllocs()
+	var pkt SetupPacket
+	for i := 0; i < b.N; i++ {
+		GetDescriptorSetup(&pkt, DescriptorTypeDevice, 0, 18)
+	}
+}
+
+func BenchmarkGetSetAddressSetup(b *testing.B) {
+	b.ReportAllocs()
+	var pkt SetupPacket
+	for i := 0; i < b.N; i++ {
+		GetSetAddressSetup(&pkt, 5)
+	}
+}
+
+func BenchmarkGetSetConfigurationSetup(b *testing.B) {
+	b.ReportAllocs()
+	var pkt SetupPacket
+	for i := 0; i < b.N; i++ {
+		GetSetConfigurationSetup(&pkt, 1)
 	}
 }
