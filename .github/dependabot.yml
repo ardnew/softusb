@@ -13,7 +13,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-  - package-ecosystem: "gitsubmodule"
-    directory: "/"
-    schedule:
-      interval: "weekly"
+  ## There are currently no submodules used by the project.
+  #
+  # - package-ecosystem: "gitsubmodule"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+
