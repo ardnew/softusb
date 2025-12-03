@@ -194,9 +194,7 @@ func (d *deviceConn) ensureInterfaceClaimed(iface uint8) error {
 	// Disconnect any kernel driver first
 	if err := disconnectDriver(d.fd, iface); err != nil {
 		// ENODATA means no driver was attached, which is fine
-		if !isNoData(err) {
-			// Ignore other errors, try to claim anyway
-		}
+		_ = isNoData(err)
 	}
 
 	// Claim the interface

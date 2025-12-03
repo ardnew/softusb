@@ -33,7 +33,7 @@ go run github.com/ardnew/softusb/cmd/softusb-udev-rules
 
 Or create a file `/etc/udev/rules.d/99-usb-hid.rules` manually:
 
-```
+```bash
 # Allow user access to all USB HID devices
 SUBSYSTEM=="usb", ATTR{bInterfaceClass}=="03", MODE="0666"
 ```
@@ -75,7 +75,7 @@ While running:
 
 The monitor uses structured logging via `slog`. Default text output:
 
-```
+```bash
 time=2024-01-15T10:30:00.000Z level=INFO msg=started component=monitor message="Waiting for HID devices... (Ctrl+T for device summary, Ctrl+C to exit)"
 time=2024-01-15T10:30:01.000Z level=INFO msg="device connected" component=monitor port=1 speed=Full
 time=2024-01-15T10:30:01.100Z level=INFO msg="device enumerated" component=monitor port=1 vid=1133 pid=50475 speed=Full manufacturer=Logitech product="USB Receiver"
