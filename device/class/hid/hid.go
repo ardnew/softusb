@@ -143,7 +143,7 @@ func (h *HID) Init(iface *device.Interface) error {
 	}
 
 	h.configured = true
-	pkg.LogInfo(pkg.ComponentDevice, "HID configured",
+	pkg.LogDebug(pkg.ComponentDevice, "HID configured",
 		"inEP", h.inEP.Address,
 		"reportDescLen", len(h.reportDescriptor))
 

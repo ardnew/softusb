@@ -222,7 +222,7 @@ func (h *HAL) Init(ctx context.Context) error {
 	}
 
 	h.initDone = true
-	pkg.LogInfo(pkg.ComponentHAL, "fifo device HAL initialized",
+	pkg.LogDebug(pkg.ComponentHAL, "fifo device HAL initialized",
 		"busDir", h.busDir,
 		"deviceDir", h.deviceDir,
 		"uuid", h.uuid)
@@ -252,7 +252,7 @@ func (h *HAL) Start() error {
 	default:
 	}
 
-	pkg.LogInfo(pkg.ComponentHAL, "fifo device HAL started")
+	pkg.LogDebug(pkg.ComponentHAL, "fifo device HAL started")
 	return nil
 }
 
@@ -283,7 +283,7 @@ func (h *HAL) Stop() error {
 	h.cleanup()
 
 	h.initDone = false
-	pkg.LogInfo(pkg.ComponentHAL, "fifo device HAL stopped")
+	pkg.LogDebug(pkg.ComponentHAL, "fifo device HAL stopped")
 	return nil
 }
 
