@@ -208,6 +208,7 @@ func (h *HID) AttachToInterface(dev *device.Device, configValue, ifaceNum uint8)
 ```
 
 Parameters:
+
 - `dev`: The built device
 - `configValue`: Configuration value (typically 1)
 - `ifaceNum`: Interface number for the HID interface
@@ -336,12 +337,14 @@ The report descriptor defines the format and meaning of reports. It uses a compa
 ## Boot Protocol vs Report Protocol
 
 ### Boot Protocol
+
 - Fixed report formats (keyboard: 8 bytes, mouse: 3 bytes)
 - Works in BIOS/UEFI before OS loads
 - Subclass must be 0x01 (Boot Interface)
 - Limited functionality
 
 ### Report Protocol
+
 - Custom report formats defined by descriptor
 - Full feature support
 - OS switches from boot to report protocol after loading
