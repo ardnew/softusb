@@ -2,6 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/ardnew/softusb.svg)](https://pkg.go.dev/github.com/ardnew/softusb)
 [![Go Report Card](https://goreportcard.com/badge/github.com/ardnew/softusb)](https://goreportcard.com/report/github.com/ardnew/softusb)
+[![CodeQL](https://github.com/ardnew/softusb/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/ardnew/softusb/actions/workflows/github-code-scanning/codeql)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Full-featured USB host and device stack written in pure Go.
