@@ -52,8 +52,13 @@
 //	    Close() error
 //	}
 //
-// Built-in support includes CDC-ACM, HID, and MSC. Additional classes
-// (USB Audio, CDC-ETM) can be implemented via this interface.
+// Built-in support includes:
+//
+//   - [github.com/ardnew/softusb/device/class/hid] - Human Interface Device
+//   - [github.com/ardnew/softusb/device/class/cdc] - Communications Device Class (CDC-ACM)
+//   - [github.com/ardnew/softusb/device/class/msc] - Mass Storage Class (Bulk-Only Transport)
+//
+// Additional classes (USB Audio, CDC-ETM) can be implemented via this interface.
 //
 // # Example
 //

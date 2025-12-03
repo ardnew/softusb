@@ -16,6 +16,7 @@ These examples demonstrate how to use the SoftUSB stack to create USB device and
 |---------|-------------|
 | [cdc-acm](cdc-acm/) | USB CDC-ACM (virtual serial port) device and host |
 | [hid-keyboard](hid-keyboard/) | USB HID keyboard device and host |
+| [msc-disk](msc-disk/) | USB Mass Storage (virtual flash drive) device and host |
 
 ---
 
@@ -89,6 +90,26 @@ go run . -enum-timeout 20s /tmp/usb-bus
 
 The device types "Hello" repeatedly using boot keyboard reports, and the host receives and displays the key presses.
 
+### MSC Disk Example
+
+The MSC disk example demonstrates a virtual USB flash drive:
+
+**Device side:**
+
+```bash
+cd examples/fifo-hal/msc-disk/device
+go run . -size 1048576 /tmp/usb-bus
+```
+
+**Host side:**
+
+```bash
+cd examples/fifo-hal/msc-disk/host
+go run . /tmp/usb-bus
+```
+
+The device creates a 1MB in-memory disk using the Mass Storage Class (Bulk-Only Transport) protocol. The host enumerates the device and detects it as an MSC device.
+
 ---
 
 ## Integration Tests
@@ -104,6 +125,9 @@ go test -v ./examples/fifo-hal/cdc-acm/
 
 # Run HID keyboard tests only
 go test -v ./examples/fifo-hal/hid-keyboard/
+
+# Run MSC disk tests only
+go test -v ./examples/fifo-hal/msc-disk/
 ```
 
 ### Test Flags
@@ -165,7 +189,7 @@ The FIFO HAL supports hot-plugging:
       import (
           "context"
           "github.com/ardnew/softusb/device"
-          "github.com/ardnew/softusb/device/class/cdc"
+          "github.com/ardnew/softusb/device/class/cdc"  // or hid, msc
           "github.com/ardnew/softusb/device/hal/fifo"
       )
 

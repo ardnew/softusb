@@ -13,7 +13,10 @@ Full-featured USB host and device stack written in pure Go.
 - Zero-allocation: designed for embedded and bare-metal applications
 - Full USB 1.1 and USB 2.0 support (Low/Full/High Speed)
 - Comprehensive transfer support (control, bulk, interrupt, isochronous)
-- Standard USB device class implementations (HID, CDC, MSC)
+- Standard USB device class implementations:
+  - [HID](device/class/hid/) - Human Interface Device (keyboards, mice, gamepads)
+  - [CDC-ACM](device/class/cdc/) - Communications Device Class (virtual serial ports)
+  - [MSC](device/class/msc/) - Mass Storage Class (USB flash drives, disk images)
 - Targets a [hardware abstraction layer (HAL)](#hardware-abstraction-layer-hal) for platform portability
 - Asynchronous operation with [context](https://pkg.go.dev/context)-based cancellation (and no dynamic allocations)
 
