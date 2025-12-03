@@ -85,38 +85,38 @@ func parseUSBDevice(sysfsPath string) (usbDeviceInfo, error) {
 	}
 
 	// Read bus number
-	busNum, err := readSysfsUint(filepath.Join(sysfsPath, "busnum"))
+	busNum, err := readSysfsUint8(filepath.Join(sysfsPath, "busnum"))
 	if err != nil {
 		return info, err
 	}
-	info.busNum = uint8(busNum)
+	info.busNum = busNum
 
 	// Read device number
-	devNum, err := readSysfsUint(filepath.Join(sysfsPath, "devnum"))
+	devNum, err := readSysfsUint8(filepath.Join(sysfsPath, "devnum"))
 	if err != nil {
 		return info, err
 	}
-	info.devNum = uint8(devNum)
+	info.devNum = devNum
 
 	// Construct devfs path
 	info.devfsPath = formatDevfsPath(info.busNum, info.devNum)
 
 	// Read vendor ID
-	vendorID, err := readSysfsHex(filepath.Join(sysfsPath, "idVendor"))
+	vendorID, err := readSysfsHexUint16(filepath.Join(sysfsPath, "idVendor"))
 	if err == nil {
-		info.vendorID = uint16(vendorID)
+		info.vendorID = vendorID
 	}
 
 	// Read product ID
-	productID, err := readSysfsHex(filepath.Join(sysfsPath, "idProduct"))
+	productID, err := readSysfsHexUint16(filepath.Join(sysfsPath, "idProduct"))
 	if err == nil {
-		info.productID = uint16(productID)
+		info.productID = productID
 	}
 
 	// Read device class
-	deviceClass, err := readSysfsHex(filepath.Join(sysfsPath, "bDeviceClass"))
+	deviceClass, err := readSysfsHexUint8(filepath.Join(sysfsPath, "bDeviceClass"))
 	if err == nil {
-		info.deviceClass = uint8(deviceClass)
+		info.deviceClass = deviceClass
 	}
 
 	// Read speed
@@ -167,28 +167,28 @@ func parseInterface(sysfsPath string) (usbInterfaceInfo, error) {
 	info := usbInterfaceInfo{}
 
 	// Read interface number
-	ifaceNum, err := readSysfsHex(filepath.Join(sysfsPath, "bInterfaceNumber"))
+	ifaceNum, err := readSysfsHexUint8(filepath.Join(sysfsPath, "bInterfaceNumber"))
 	if err != nil {
 		return info, err
 	}
-	info.number = uint8(ifaceNum)
+	info.number = ifaceNum
 
 	// Read interface class
-	ifaceClass, err := readSysfsHex(filepath.Join(sysfsPath, "bInterfaceClass"))
+	ifaceClass, err := readSysfsHexUint8(filepath.Join(sysfsPath, "bInterfaceClass"))
 	if err == nil {
-		info.class = uint8(ifaceClass)
+		info.class = ifaceClass
 	}
 
 	// Read interface subclass
-	ifaceSubclass, err := readSysfsHex(filepath.Join(sysfsPath, "bInterfaceSubClass"))
+	ifaceSubclass, err := readSysfsHexUint8(filepath.Join(sysfsPath, "bInterfaceSubClass"))
 	if err == nil {
-		info.subclass = uint8(ifaceSubclass)
+		info.subclass = ifaceSubclass
 	}
 
 	// Read interface protocol
-	ifaceProtocol, err := readSysfsHex(filepath.Join(sysfsPath, "bInterfaceProtocol"))
+	ifaceProtocol, err := readSysfsHexUint8(filepath.Join(sysfsPath, "bInterfaceProtocol"))
 	if err == nil {
-		info.protocol = uint8(ifaceProtocol)
+		info.protocol = ifaceProtocol
 	}
 
 	return info, nil
@@ -207,24 +207,72 @@ func readSysfsString(path string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// readSysfsUint reads an unsigned integer from a sysfs attribute file.
-func readSysfsUint(path string) (uint64, error) {
+// readSysfsUint reads an unsigned decimal integer from a sysfs attribute file.
+func readSysfsUint(path string, bitSize int) (uint64, error) {
 	s, err := readSysfsString(path)
 	if err != nil {
 		return 0, err
 	}
-	return strconv.ParseUint(s, 10, 64)
+	return strconv.ParseUint(s, 10, bitSize)
+}
+
+// readSysfsUint8 reads an unsigned decimal uint8 from a sysfs attribute file.
+func readSysfsUint8(path string) (uint8, error) {
+	v, err := readSysfsUint(path, 8)
+	if err != nil {
+		return 0, err
+	}
+	if v > 0xFF {
+		return 0, os.ErrInvalid
+	}
+	return uint8(v), nil
+}
+
+// readSysfsUint16 reads an unsigned decimal uint16 from a sysfs attribute file.
+func readSysfsUint16(path string) (uint16, error) {
+	v, err := readSysfsUint(path, 16)
+	if err != nil {
+		return 0, err
+	}
+	if v > 0xFFFF {
+		return 0, os.ErrInvalid
+	}
+	return uint16(v), nil
 }
 
 // readSysfsHex reads a hexadecimal value from a sysfs attribute file.
-func readSysfsHex(path string) (uint64, error) {
+func readSysfsHex(path string, bitSize int) (uint64, error) {
 	s, err := readSysfsString(path)
 	if err != nil {
 		return 0, err
 	}
 	// Remove any "0x" prefix
 	s = strings.TrimPrefix(s, "0x")
-	return strconv.ParseUint(s, 16, 64)
+	return strconv.ParseUint(s, 16, bitSize)
+}
+
+// readSysfsHexUint8 reads a hexadecimal uint8 from a sysfs attribute file.
+func readSysfsHexUint8(path string) (uint8, error) {
+	v, err := readSysfsHex(path, 8)
+	if err != nil {
+		return 0, err
+	}
+	if v > 0xFF {
+		return 0, os.ErrInvalid
+	}
+	return uint8(v), nil
+}
+
+// readSysfsHexUint16 reads a hexadecimal uint16 from a sysfs attribute file.
+func readSysfsHexUint16(path string) (uint16, error) {
+	v, err := readSysfsHex(path, 16)
+	if err != nil {
+		return 0, err
+	}
+	if v > 0xFFFF {
+		return 0, os.ErrInvalid
+	}
+	return uint16(v), nil
 }
 
 // =============================================================================
@@ -264,17 +312,18 @@ func formatPadded(buf []byte, val uint8, width int) int {
 // parseSysfsDevicePath extracts bus and device numbers from a sysfs device path.
 func parseSysfsDevicePath(path string) (busNum, devNum uint8, ok bool) {
 	// Read from busnum and devnum files
-	busNumVal, err := readSysfsUint(filepath.Join(path, "busnum"))
+
+	busNumVal, err := readSysfsUint8(filepath.Join(path, "busnum"))
 	if err != nil {
 		return 0, 0, false
 	}
 
-	devNumVal, err := readSysfsUint(filepath.Join(path, "devnum"))
+	devNumVal, err := readSysfsUint8(filepath.Join(path, "devnum"))
 	if err != nil {
 		return 0, 0, false
 	}
 
-	return uint8(busNumVal), uint8(devNumVal), true
+	return busNumVal, devNumVal, true
 }
 
 // =============================================================================
