@@ -57,6 +57,7 @@ Always use [Go doc](https://pkg.go.dev/github.com/ardnew/softusb) for the full A
 | README | Description |
 |---------|-------------|
 | [pkg/prof](pkg/prof/README.md) | Profiling utilities (build tag: `profile`) |
+| [cmd/softusb-udev-rules](cmd/softusb-udev-rules/README.md) | udev rules generator for Linux USB access |
 
 ### Examples
 
