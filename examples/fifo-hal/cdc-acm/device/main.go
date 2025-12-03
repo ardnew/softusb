@@ -13,6 +13,8 @@
 //
 // Options:
 //
+//	-v                         Enable verbose (debug) logging
+//	-json                      Use JSON log format
 //	-enum-timeout duration     Timeout for enumeration (default: 10s)
 //	-transfer-timeout duration Timeout for data transfers (default: 5s)
 package main
@@ -20,7 +22,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -33,20 +34,31 @@ import (
 	"github.com/ardnew/softusb/pkg"
 )
 
+// component identifies this executable for structured logging.
+const component = pkg.ComponentDevice
+
 func main() {
+	verbose := flag.Bool("v", false, "enable verbose (debug) logging")
+	jsonLog := flag.Bool("json", false, "use JSON log format")
 	enumTimeout := flag.Duration("enum-timeout", 10*time.Second, "timeout for enumeration")
 	transferTimeout := flag.Duration("transfer-timeout", 5*time.Second, "timeout for data transfers")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: device [options] <bus-dir>")
+		pkg.LogError(component, "missing bus directory argument",
+			"usage", "device [options] <bus-dir>")
 		os.Exit(1)
 	}
 
 	busDir := flag.Arg(0)
 
 	// Set up logging
-	pkg.SetLogLevel(slog.LevelDebug)
+	if *verbose {
+		pkg.SetLogLevel(slog.LevelDebug)
+	}
+	if *jsonLog {
+		pkg.SetLogFormat(pkg.LogFormatJSON)
+	}
 
 	// Create FIFO HAL with bus directory
 	hal := fifo.New(busDir)
@@ -69,14 +81,14 @@ func main() {
 
 	dev, err := builder.Build(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to build device: %v\n", err)
+		pkg.LogError(component, "failed to build device", "error", err)
 		os.Exit(1)
 	}
 
 	// Attach ACM driver to the CDC interfaces in configuration 1
 	// (interface 0 = control, interface 1 = data)
 	if err := acm.AttachToInterfaces(dev, 1, 0, 1); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to attach ACM driver: %v\n", err)
+		pkg.LogError(component, "failed to attach ACM driver", "error", err)
 		os.Exit(1)
 	}
 
@@ -91,7 +103,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		fmt.Println("\nShutting down...")
+		pkg.LogInfo(component, "shutting down")
 		cancel()
 	}()
 
@@ -99,29 +111,29 @@ func main() {
 	var buf [64]byte
 
 	// Start the device stack
-	fmt.Println("Starting CDC-ACM device...")
-	fmt.Printf("Bus directory: %s\n", busDir)
-	fmt.Printf("Device directory: %s\n", hal.DeviceDir())
+	pkg.LogInfo(component, "starting CDC-ACM device",
+		"busDir", busDir,
+		"deviceDir", hal.DeviceDir())
 
 	if err := stack.Start(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start device: %v\n", err)
+		pkg.LogError(component, "failed to start device", "error", err)
 		os.Exit(1)
 	}
 	defer stack.Stop()
 
 	// Wait for connection with enumeration timeout
-	fmt.Println("Waiting for host connection...")
+	pkg.LogInfo(component, "waiting for host connection")
 	enumCtx, enumCancel := context.WithTimeout(ctx, *enumTimeout)
 	defer enumCancel()
 
 	if err := stack.WaitConnect(enumCtx); err != nil {
-		fmt.Fprintf(os.Stderr, "Connection failed: %v\n", err)
+		pkg.LogError(component, "connection failed", "error", err)
 		os.Exit(1)
 	}
-	fmt.Println("Host connected!")
+	pkg.LogInfo(component, "Host connected!")
 
 	// Main loop - echo any data received
-	fmt.Println("Echoing data (Ctrl+C to exit)...")
+	pkg.LogInfo(component, "echoing data")
 	for {
 		select {
 		case <-ctx.Done():
@@ -140,14 +152,16 @@ func main() {
 		}
 
 		if n > 0 {
-			fmt.Printf("Received %d bytes: %q\n", n, buf[:n])
+			pkg.LogInfo(component, "received data",
+				"bytes", n,
+				"data", string(buf[:n]))
 
 			// Echo back with transfer timeout
 			transferCtx, transferCancel = context.WithTimeout(ctx, *transferTimeout)
 			_, err = acm.Write(transferCtx, buf[:n])
 			transferCancel()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Write error: %v\n", err)
+				pkg.LogError(component, "write error", "error", err)
 			}
 		}
 	}

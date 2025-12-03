@@ -69,6 +69,10 @@ go run . /tmp/usb-bus
 Usage: device [options] <bus-dir>
 
 Options:
+  -v
+        Enable verbose (debug) logging
+  -json
+        Use JSON log format
   -enum-timeout duration
         Timeout for enumeration (default 10s)
   -transfer-timeout duration
@@ -81,6 +85,10 @@ Options:
 Usage: host [options] <bus-dir>
 
 Options:
+  -v
+        Enable verbose (debug) logging
+  -json
+        Use JSON log format
   -hotplug-limit int
         Number of devices to service before exiting (default 1)
   -enum-timeout duration
@@ -92,6 +100,12 @@ Options:
 ### Examples
 
 ```bash
+# Device with verbose logging
+go run ./device -v /tmp/usb-bus
+
+# Host with JSON output for structured logging
+go run ./host -json /tmp/usb-bus
+
 # Device with longer timeouts
 go run ./device -enum-timeout 30s -transfer-timeout 10s /tmp/usb-bus
 
@@ -116,9 +130,32 @@ go test -v ./examples/fifo-hal/cdc-acm/
 go test -v ./examples/fifo-hal/cdc-acm/ -args \
     -enum-timeout=15s \
     -transfer-timeout=10s
+
+# Run with verbose logging
+go test -v ./examples/fifo-hal/cdc-acm/ -args -verbose
+
+# Run with JSON log output
+go test -v ./examples/fifo-hal/cdc-acm/ -args -json
+
+# Run with merged output (host and device to single stream)
+go test -v ./examples/fifo-hal/cdc-acm/ -args -m
+
+# Combined options
+go test -v ./examples/fifo-hal/cdc-acm/ -args \
+    -verbose -json -m
 ```
 
 **Note:** Use `-args` to pass flags to the test binary (after the Go test flags).
+
+### Test Flags
+
+| Flag | Description |
+|------|-------------|
+| `-enum-timeout` | Timeout for USB enumeration (default 10s) |
+| `-transfer-timeout` | Timeout for data transfers (default 5s) |
+| `-verbose` | Enable debug logging in host and device processes |
+| `-json` | Use JSON log format for structured output |
+| `-m` | Merge host and device output into a single stream |
 
 ### Test Cases
 

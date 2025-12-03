@@ -32,16 +32,16 @@ The FIFO HAL simulates USB communication by using the filesystem to exchange dat
 └────────┬────────┘                          └────────┬────────┘
          │                                            │
          │    ┌──────────────────────────────────┐    │
-         └────│         Bus Directory           │────┘
-              │        /tmp/usb-bus/            │
+         └────│         Bus Directory            │────┘
+              │        /tmp/usb-bus/             │
               │                                  │
               │  device-{uuid}/                  │
               │  ├── connection  (device signal) │
-              │  ├── host_to_device (control)   │
-              │  ├── device_to_host (control)   │
-              │  ├── ep1_in, ep1_out            │
-              │  ├── ep2_in, ep2_out            │
-              │  └── ... (up to ep15)           │
+              │  ├── host_to_device (control)    │
+              │  ├── device_to_host (control)    │
+              │  ├── ep1_in, ep1_out             │
+              │  ├── ep2_in, ep2_out             │
+              │  └── ... (up to ep15)            │
               └──────────────────────────────────┘
 ```
 

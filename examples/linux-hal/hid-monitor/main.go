@@ -280,9 +280,7 @@ func main() {
 
 	// Configure JSON output if requested
 	if *jsonOut {
-		pkg.SetLogger(pkg.NewJSONLogger(os.Stderr, &slog.HandlerOptions{
-			Level: pkg.GetLogLevel(),
-		}))
+		pkg.SetLogFormat(pkg.LogFormatJSON)
 	}
 
 	// Create HAL

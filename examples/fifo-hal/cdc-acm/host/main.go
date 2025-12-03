@@ -14,6 +14,8 @@
 //
 // Options:
 //
+//	-v                         Enable verbose (debug) logging
+//	-json                      Use JSON log format
 //	-hotplug-limit N           Number of devices to service before exiting (default: 1)
 //	-enum-timeout duration     Timeout for enumeration (default: 10s)
 //	-transfer-timeout duration Timeout for data transfers (default: 5s)
@@ -21,8 +23,8 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -35,21 +37,38 @@ import (
 	"github.com/ardnew/softusb/pkg"
 )
 
+// component identifies this executable for structured logging.
+const component = pkg.ComponentHost
+
+// Error types for this executable.
+var (
+	errBulkOutFailed = errors.New("bulk OUT failed")
+	errBulkInFailed  = errors.New("bulk IN failed")
+)
+
 func main() {
+	verbose := flag.Bool("v", false, "enable verbose (debug) logging")
+	jsonLog := flag.Bool("json", false, "use JSON log format")
 	hotplugLimit := flag.Int("hotplug-limit", 1, "number of devices to service")
 	enumTimeout := flag.Duration("enum-timeout", 10*time.Second, "timeout for enumeration")
 	transferTimeout := flag.Duration("transfer-timeout", 5*time.Second, "timeout for data transfers")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: host [options] <bus-dir>")
+		pkg.LogError(component, "missing bus directory argument",
+			"usage", "host [options] <bus-dir>")
 		os.Exit(1)
 	}
 
 	busDir := flag.Arg(0)
 
 	// Set up logging
-	pkg.SetLogLevel(slog.LevelDebug)
+	if *verbose {
+		pkg.SetLogLevel(slog.LevelDebug)
+	}
+	if *jsonLog {
+		pkg.SetLogFormat(pkg.LogFormatJSON)
+	}
 
 	// Create FIFO HAL with bus directory
 	hal := fifo.NewHostHAL(busDir)
@@ -66,16 +85,15 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		fmt.Println("\nShutting down...")
+		pkg.LogInfo(component, "shutting down")
 		cancel()
 	}()
 
 	// Start the host
-	fmt.Println("Starting USB host...")
-	fmt.Printf("Bus directory: %s\n", busDir)
+	pkg.LogInfo(component, "starting USB host", "busDir", busDir)
 
 	if err := usbHost.Start(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start host: %v\n", err)
+		pkg.LogError(component, "failed to start host", "error", err)
 		os.Exit(1)
 	}
 	defer usbHost.Stop()
@@ -90,48 +108,50 @@ func main() {
 		}
 
 		// Wait for device with enumeration timeout
-		fmt.Println("Waiting for device connection...")
+		pkg.LogInfo(component, "waiting for device connection")
 		enumCtx, enumCancel := context.WithTimeout(ctx, *enumTimeout)
 		dev, err := usbHost.WaitDevice(enumCtx)
 		enumCancel()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error waiting for device: %v\n", err)
+			pkg.LogError(component, "error waiting for device", "error", err)
 			continue
 		}
 
-		fmt.Printf("Device connected:\n")
-		fmt.Printf("  Vendor ID:  0x%04X\n", dev.VendorID())
-		fmt.Printf("  Product ID: 0x%04X\n", dev.ProductID())
-		fmt.Printf("  Manufacturer: %s\n", dev.Manufacturer())
-		fmt.Printf("  Product: %s\n", dev.Product())
-		fmt.Printf("  Serial: %s\n", dev.SerialNumber())
+		pkg.LogInfo(component, "Device connected",
+			"vendorID", dev.VendorID(),
+			"productID", dev.ProductID(),
+			"manufacturer", dev.Manufacturer(),
+			"product", dev.Product(),
+			"serial", dev.SerialNumber())
 
 		// Check if this is a CDC-ACM device
 		if !isCDCDevice(dev) {
-			fmt.Println("Not a CDC device, skipping...")
+			pkg.LogInfo(component, "not a CDC device, skipping")
 			continue
 		}
 
-		fmt.Println("CDC-ACM device detected!")
+		pkg.LogInfo(component, "CDC-ACM device detected!")
 
 		// Find bulk endpoints
 		bulkIn, bulkOut := findBulkEndpoints(dev)
 		if bulkIn == 0 || bulkOut == 0 {
-			fmt.Println("Could not find bulk endpoints")
+			pkg.LogWarn(component, "could not find bulk endpoints")
 			continue
 		}
 
-		fmt.Printf("Bulk IN: 0x%02X, Bulk OUT: 0x%02X\n", bulkIn, bulkOut)
+		pkg.LogInfo(component, "found bulk endpoints",
+			"bulkIn", bulkIn,
+			"bulkOut", bulkOut)
 
 		// Communicate with device using transfer timeout
 		if err := communicateWithDevice(ctx, dev, bulkIn, bulkOut, *transferTimeout); err != nil {
-			fmt.Fprintf(os.Stderr, "Communication error: %v\n", err)
+			pkg.LogError(component, "communication error", "error", err)
 		}
 
 		devicesServiced++
 	}
 
-	fmt.Printf("Serviced %d device(s)\n", devicesServiced)
+	pkg.LogInfo(component, "Serviced devices", "count", devicesServiced)
 }
 
 // isCDCDevice checks if the device is a CDC device.
@@ -170,15 +190,15 @@ func findBulkEndpoints(dev *host.Device) (in, out uint8) {
 func communicateWithDevice(ctx context.Context, dev *host.Device, bulkIn, bulkOut uint8, timeout time.Duration) error {
 	// Send test message with timeout
 	testMessage := []byte("Hello from USB Host!")
-	fmt.Printf("Sending: %q\n", testMessage)
+	pkg.LogInfo(component, "sending data", "data", string(testMessage))
 
 	transferCtx, cancel := context.WithTimeout(ctx, timeout)
 	n, err := dev.BulkTransfer(transferCtx, bulkOut, testMessage)
 	cancel()
 	if err != nil {
-		return fmt.Errorf("bulk OUT failed: %w", err)
+		return errors.Join(errBulkOutFailed, err)
 	}
-	fmt.Printf("Sent %d bytes\n", n)
+	pkg.LogInfo(component, "sent data", "bytes", n)
 
 	// Wait a bit for device to process
 	time.Sleep(100 * time.Millisecond)
@@ -189,10 +209,12 @@ func communicateWithDevice(ctx context.Context, dev *host.Device, bulkIn, bulkOu
 	n, err = dev.BulkTransfer(transferCtx, bulkIn, buf[:])
 	cancel()
 	if err != nil {
-		return fmt.Errorf("bulk IN failed: %w", err)
+		return errors.Join(errBulkInFailed, err)
 	}
 
-	fmt.Printf("Received %d bytes: %q\n", n, buf[:n])
+	pkg.LogInfo(component, "Received data",
+		"bytes", n,
+		"data", string(buf[:n]))
 
 	return nil
 }

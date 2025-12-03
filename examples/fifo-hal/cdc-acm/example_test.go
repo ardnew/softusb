@@ -9,7 +9,9 @@
 //
 //	go test -v ./examples/fifo-hal/cdc-acm/ -args \
 //	    -enum-timeout=15s \
-//	    -transfer-timeout=10s
+//	    -transfer-timeout=10s \
+//	    -json \
+//	    -m
 //
 // Note: Use -args to pass flags to the test binary (after the test flags).
 package main
@@ -18,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"flag"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,7 +34,27 @@ import (
 var (
 	enumTimeout     = flag.Duration("enum-timeout", 10*time.Second, "timeout for enumeration")
 	transferTimeout = flag.Duration("transfer-timeout", 5*time.Second, "timeout for data transfers")
+	jsonLog         = flag.Bool("json", false, "use JSON log format")
+	mergeOutput     = flag.Bool("merge-output", false, "merge host and device output into a single stream")
 )
+
+// syncWriter wraps an io.Writer with mutex protection for concurrent writes.
+type syncWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+// Write implements io.Writer with thread-safe writes.
+func (sw *syncWriter) Write(p []byte) (n int, err error) {
+	sw.mu.Lock()
+	defer sw.mu.Unlock()
+	return sw.w.Write(p)
+}
+
+// newSyncWriter creates a new thread-safe writer.
+func newSyncWriter(w io.Writer) *syncWriter {
+	return &syncWriter{w: w}
+}
 
 // TestCDCACMIntegration tests the CDC-ACM host-device communication.
 func TestCDCACMIntegration(t *testing.T) {
@@ -58,104 +81,103 @@ func TestCDCACMIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	var wg sync.WaitGroup
-	hostOut := &bytes.Buffer{}
-	deviceOut := &bytes.Buffer{}
-	hostErr := &bytes.Buffer{}
-	deviceErr := &bytes.Buffer{}
+	// Set up output writers based on merge flag
+	var hostOut io.Writer
+	var hostBuf *bytes.Buffer
+	var merged *syncWriter
 
-	// Start device first (it creates the subdirectory)
-	deviceCmd := exec.CommandContext(ctx, deviceBin,
-		"-enum-timeout", enumTimeout.String(),
-		"-transfer-timeout", transferTimeout.String(),
-		busDir)
-	deviceCmd.Stdout = deviceOut
-	deviceCmd.Stderr = deviceErr
+	if *mergeOutput {
+		merged = newSyncWriter(os.Stdout)
+		hostOut = merged
+		hostBuf = nil
+	} else {
+		hostBuf = &bytes.Buffer{}
+		hostOut = hostBuf
+	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := deviceCmd.Start(); err != nil {
-			t.Errorf("Failed to start device: %v", err)
-			return
-		}
-		// Device runs until killed or context cancelled
-		_ = deviceCmd.Wait()
-	}()
-
-	// Give device time to create its subdirectory
-	time.Sleep(500 * time.Millisecond)
-
-	// Start host
-	hostCmd := exec.CommandContext(ctx, hostBin,
+	// Start host expecting 1 device
+	// Always pass -v to ensure info-level logs are captured for test assertions
+	hostArgs := []string{
+		"-v",
 		"-hotplug-limit", "1",
 		"-enum-timeout", enumTimeout.String(),
 		"-transfer-timeout", transferTimeout.String(),
-		busDir)
+	}
+	if *jsonLog {
+		hostArgs = append(hostArgs, "-json")
+	}
+	hostArgs = append(hostArgs, busDir)
+	hostCmd := exec.CommandContext(ctx, hostBin, hostArgs...)
 	hostCmd.Stdout = hostOut
-	hostCmd.Stderr = hostErr
+	hostCmd.Stderr = hostOut // Merge stderr into stdout
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := hostCmd.Run(); err != nil {
-			// Context cancellation is expected
-			if ctx.Err() == nil {
-				t.Logf("Host exited with error: %v", err)
-			}
-		}
-	}()
+	if err := hostCmd.Start(); err != nil {
+		t.Fatalf("Failed to start host: %v", err)
+	}
 
-	// Wait for host to complete (it exits after servicing 1 device)
-	// or timeout
-	done := make(chan struct{})
+	// Give host time to start
+	time.Sleep(500 * time.Millisecond)
+
+	// Start device
+	// Always pass -v to ensure info-level logs are captured for test assertions
+	deviceArgs := []string{
+		"-v",
+		"-enum-timeout", enumTimeout.String(),
+		"-transfer-timeout", transferTimeout.String(),
+	}
+	if *jsonLog {
+		deviceArgs = append(deviceArgs, "-json")
+	}
+	deviceArgs = append(deviceArgs, busDir)
+	deviceCmd := exec.CommandContext(ctx, deviceBin, deviceArgs...)
+
+	var deviceOut io.Writer
+	var deviceBuf *bytes.Buffer
+	if *mergeOutput {
+		deviceOut = merged
+		deviceBuf = nil
+	} else {
+		deviceBuf = &bytes.Buffer{}
+		deviceOut = deviceBuf
+	}
+	deviceCmd.Stdout = deviceOut
+	deviceCmd.Stderr = deviceOut // Merge stderr into stdout
+
+	if err := deviceCmd.Start(); err != nil {
+		t.Fatalf("Failed to start device: %v", err)
+	}
+
+	// Wait for host to complete
+	done := make(chan error, 1)
 	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				close(done)
-				return
-			default:
-				// Check if host has completed
-				if strings.Contains(hostOut.String(), "Serviced 1 device") {
-					close(done)
-					return
-				}
-				time.Sleep(100 * time.Millisecond)
-			}
-		}
+		done <- hostCmd.Wait()
 	}()
 
 	select {
-	case <-done:
-		// Host completed successfully
+	case err := <-done:
+		if err != nil && ctx.Err() == nil {
+			t.Logf("Host exited with error: %v", err)
+		}
 	case <-time.After(25 * time.Second):
-		t.Logf("Test timeout")
+		t.Logf("Test timeout waiting for host")
 	}
 
-	// Cancel context to clean up
+	// Cleanup
 	cancel()
-
-	// Kill device if still running
 	if deviceCmd.Process != nil {
 		_ = deviceCmd.Process.Kill()
 	}
 
-	// Wait for all goroutines
-	wg.Wait()
-
-	// Verify output
-	hostOutput := hostOut.String()
-	deviceOutput := deviceOut.String()
-
-	t.Logf("Host stdout:\n%s", hostOutput)
-	t.Logf("Device stdout:\n%s", deviceOutput)
-
-	if hostErr.Len() > 0 {
-		t.Logf("Host stderr:\n%s", hostErr.String())
+	// Verify output (skip validation when merging, as output goes to stdout)
+	if *mergeOutput {
+		t.Log("Output merged to stdout")
+		return
 	}
-	if deviceErr.Len() > 0 {
-		t.Logf("Device stderr:\n%s", deviceErr.String())
+
+	hostOutput := hostBuf.String()
+	t.Logf("Host output:\n%s", hostOutput)
+	if deviceBuf != nil {
+		t.Logf("Device output:\n%s", deviceBuf.String())
 	}
 
 	// Check for expected output
@@ -171,12 +193,15 @@ func TestCDCACMIntegration(t *testing.T) {
 		t.Error("Host did not send test message")
 	}
 
-	if !strings.Contains(deviceOutput, "Host connected") {
-		t.Error("Device did not detect host connection")
-	}
+	if deviceBuf != nil {
+		deviceOutput := deviceBuf.String()
+		if !strings.Contains(deviceOutput, "Host connected") {
+			t.Error("Device did not detect host connection")
+		}
 
-	if !strings.Contains(deviceOutput, "Received") {
-		t.Error("Device did not receive data from host")
+		if !strings.Contains(deviceOutput, "received data") {
+			t.Error("Device did not receive data from host")
+		}
 	}
 }
 
@@ -205,17 +230,35 @@ func TestCDCACMMultipleDevices(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	hostOut := &bytes.Buffer{}
-	hostErr := &bytes.Buffer{}
+	// Set up output writers based on merge flag
+	var hostOut io.Writer
+	var hostBuf *bytes.Buffer
+	var merged *syncWriter
+
+	if *mergeOutput {
+		merged = newSyncWriter(os.Stdout)
+		hostOut = merged
+		hostBuf = nil
+	} else {
+		hostBuf = &bytes.Buffer{}
+		hostOut = hostBuf
+	}
 
 	// Start host expecting 2 devices
-	hostCmd := exec.CommandContext(ctx, hostBin,
+	// Always pass -v to ensure info-level logs are captured for test assertions
+	hostArgs := []string{
+		"-v",
 		"-hotplug-limit", "2",
 		"-enum-timeout", enumTimeout.String(),
 		"-transfer-timeout", transferTimeout.String(),
-		busDir)
+	}
+	if *jsonLog {
+		hostArgs = append(hostArgs, "-json")
+	}
+	hostArgs = append(hostArgs, busDir)
+	hostCmd := exec.CommandContext(ctx, hostBin, hostArgs...)
 	hostCmd.Stdout = hostOut
-	hostCmd.Stderr = hostErr
+	hostCmd.Stderr = hostOut // Merge stderr into stdout
 
 	if err := hostCmd.Start(); err != nil {
 		t.Fatalf("Failed to start host: %v", err)
@@ -225,20 +268,36 @@ func TestCDCACMMultipleDevices(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Start first device
-	device1Cmd := exec.CommandContext(ctx, deviceBin,
+	// Always pass -v to ensure info-level logs are captured for test assertions
+	device1Args := []string{
+		"-v",
 		"-enum-timeout", enumTimeout.String(),
 		"-transfer-timeout", transferTimeout.String(),
-		busDir)
-	device1Out := &bytes.Buffer{}
+	}
+	if *jsonLog {
+		device1Args = append(device1Args, "-json")
+	}
+	device1Args = append(device1Args, busDir)
+	device1Cmd := exec.CommandContext(ctx, deviceBin, device1Args...)
+
+	var device1Out io.Writer
+	var device1Buf *bytes.Buffer
+	if *mergeOutput {
+		device1Out = merged
+		device1Buf = nil
+	} else {
+		device1Buf = &bytes.Buffer{}
+		device1Out = device1Buf
+	}
 	device1Cmd.Stdout = device1Out
-	device1Cmd.Stderr = device1Out
+	device1Cmd.Stderr = device1Out // Merge stderr into stdout
 
 	if err := device1Cmd.Start(); err != nil {
 		t.Fatalf("Failed to start device 1: %v", err)
 	}
 
 	// Wait for first device to be serviced
-	time.Sleep(3 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	// Kill first device
 	if device1Cmd.Process != nil {
@@ -246,13 +305,29 @@ func TestCDCACMMultipleDevices(t *testing.T) {
 	}
 
 	// Start second device
-	device2Cmd := exec.CommandContext(ctx, deviceBin,
+	// Always pass -v to ensure info-level logs are captured for test assertions
+	device2Args := []string{
+		"-v",
 		"-enum-timeout", enumTimeout.String(),
 		"-transfer-timeout", transferTimeout.String(),
-		busDir)
-	device2Out := &bytes.Buffer{}
+	}
+	if *jsonLog {
+		device2Args = append(device2Args, "-json")
+	}
+	device2Args = append(device2Args, busDir)
+	device2Cmd := exec.CommandContext(ctx, deviceBin, device2Args...)
+
+	var device2Out io.Writer
+	var device2Buf *bytes.Buffer
+	if *mergeOutput {
+		device2Out = merged
+		device2Buf = nil
+	} else {
+		device2Buf = &bytes.Buffer{}
+		device2Out = device2Buf
+	}
 	device2Cmd.Stdout = device2Out
-	device2Cmd.Stderr = device2Out
+	device2Cmd.Stderr = device2Out // Merge stderr into stdout
 
 	if err := device2Cmd.Start(); err != nil {
 		t.Fatalf("Failed to start device 2: %v", err)
@@ -279,18 +354,23 @@ func TestCDCACMMultipleDevices(t *testing.T) {
 		_ = device2Cmd.Process.Kill()
 	}
 
-	// Verify output
-	hostOutput := hostOut.String()
-	t.Logf("Host stdout:\n%s", hostOutput)
-	t.Logf("Device 1 output:\n%s", device1Out.String())
-	t.Logf("Device 2 output:\n%s", device2Out.String())
+	// Verify output (skip validation when merging, as output goes to stdout)
+	if *mergeOutput {
+		t.Log("Output merged to stdout")
+		return
+	}
 
-	if hostErr.Len() > 0 {
-		t.Logf("Host stderr:\n%s", hostErr.String())
+	hostOutput := hostBuf.String()
+	t.Logf("Host output:\n%s", hostOutput)
+	if device1Buf != nil {
+		t.Logf("Device 1 output:\n%s", device1Buf.String())
+	}
+	if device2Buf != nil {
+		t.Logf("Device 2 output:\n%s", device2Buf.String())
 	}
 
 	// Check for expected output - host should service 2 devices
-	if !strings.Contains(hostOutput, "Serviced 2 device") {
+	if !strings.Contains(hostOutput, "Serviced devices") || !strings.Contains(hostOutput, "count=2") {
 		t.Error("Host did not service 2 devices")
 	}
 }

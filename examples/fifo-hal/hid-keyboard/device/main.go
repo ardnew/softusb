@@ -13,6 +13,8 @@
 //
 // Options:
 //
+//	-v                         Enable verbose (debug) logging
+//	-json                      Use JSON log format
 //	-enum-timeout duration     Timeout for enumeration (default: 10s)
 //	-transfer-timeout duration Timeout for data transfers (default: 5s)
 package main
@@ -20,7 +22,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -32,6 +33,9 @@ import (
 	"github.com/ardnew/softusb/device/hal/fifo"
 	"github.com/ardnew/softusb/pkg"
 )
+
+// component identifies this executable for structured logging.
+const component = pkg.ComponentDevice
 
 // Boot keyboard report descriptor (standard 8-byte report)
 var keyboardReportDescriptor = []byte{
@@ -61,17 +65,27 @@ var keyboardReportDescriptor = []byte{
 }
 
 func main() {
+	verbose := flag.Bool("v", false, "enable verbose (debug) logging")
+	jsonLog := flag.Bool("json", false, "use JSON log format")
 	enumTimeout := flag.Duration("enum-timeout", 10*time.Second, "timeout for enumeration")
 	transferTimeout := flag.Duration("transfer-timeout", 5*time.Second, "timeout for data transfers")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "Usage: device [options] <bus-dir>")
+		pkg.LogError(component, "missing bus directory argument",
+			"usage", "device [options] <bus-dir>")
 		os.Exit(1)
 	}
 
 	busDir := flag.Arg(0)
-	pkg.SetLogLevel(slog.LevelDebug)
+
+	// Set up logging
+	if *verbose {
+		pkg.SetLogLevel(slog.LevelDebug)
+	}
+	if *jsonLog {
+		pkg.SetLogFormat(pkg.LogFormatJSON)
+	}
 
 	hal := fifo.New(busDir)
 
@@ -88,13 +102,13 @@ func main() {
 
 	dev, err := builder.Build(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to build device: %v\n", err)
+		pkg.LogError(component, "failed to build device", "error", err)
 		os.Exit(1)
 	}
 
 	// Attach HID driver to the interface in configuration 1 (interface 0)
 	if err := keyboard.AttachToInterface(dev, 1, 0); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to attach HID driver: %v\n", err)
+		pkg.LogError(component, "failed to attach HID driver", "error", err)
 		os.Exit(1)
 	}
 
@@ -105,30 +119,29 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		fmt.Println("\nShutting down...")
+		pkg.LogInfo(component, "shutting down")
 		cancel()
 	}()
 
-	fmt.Println("Starting HID keyboard device...")
-	fmt.Printf("FIFO directory: %s\n", busDir)
+	pkg.LogInfo(component, "starting HID keyboard device", "busDir", busDir)
 
 	if err := stack.Start(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start device: %v\n", err)
+		pkg.LogError(component, "failed to start device", "error", err)
 		os.Exit(1)
 	}
 	defer stack.Stop()
 
-	fmt.Println("Waiting for host connection...")
+	pkg.LogInfo(component, "waiting for host connection")
 	connectCtx, connectCancel := context.WithTimeout(ctx, *enumTimeout)
 	if err := stack.WaitConnect(connectCtx); err != nil {
 		connectCancel()
-		fmt.Fprintf(os.Stderr, "Connection failed: %v\n", err)
+		pkg.LogError(component, "connection failed", "error", err)
 		os.Exit(1)
 	}
 	connectCancel()
-	fmt.Println("Host connected!")
+	pkg.LogInfo(component, "Host connected!")
 
-	fmt.Println("Typing 'Hello' every 2 seconds (Ctrl+C to exit)...")
+	pkg.LogInfo(component, "typing 'Hello' every 2 seconds")
 	typeString := []byte("Hello\n")
 	idx := 0
 
@@ -165,7 +178,7 @@ func main() {
 				sendCtx, sendCancel := context.WithTimeout(ctx, *transferTimeout)
 				if err := keyboard.SendReport(sendCtx, report[:]); err != nil {
 					sendCancel()
-					fmt.Fprintf(os.Stderr, "SendReport error: %v\n", err)
+					pkg.LogError(component, "SendReport error", "error", err)
 				}
 				sendCancel()
 
@@ -178,11 +191,11 @@ func main() {
 				releaseCtx, releaseCancel := context.WithTimeout(ctx, *transferTimeout)
 				if err := keyboard.SendReport(releaseCtx, report[:]); err != nil {
 					releaseCancel()
-					fmt.Fprintf(os.Stderr, "SendReport error: %v\n", err)
+					pkg.LogError(component, "SendReport error", "error", err)
 				}
 				releaseCancel()
 
-				fmt.Printf("Typed: '%c'\n", ch)
+				pkg.LogInfo(component, "Typed:", "char", string(ch))
 				idx++
 			} else {
 				idx = 0

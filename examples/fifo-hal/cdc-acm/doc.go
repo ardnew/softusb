@@ -22,6 +22,8 @@
 //
 //   - -enum-timeout: Timeout for enumeration (default 10s)
 //   - -transfer-timeout: Timeout for data transfers (default 5s)
+//   - -verbose: Enable verbose (debug) logging
+//   - -json: Use JSON log format
 //
 // # Test Cases
 //
@@ -37,6 +39,8 @@
 //
 // Both support command-line flags for timeout configuration:
 //
+//   - -v: Enable verbose (debug) logging
+//   - -json: Use JSON log format
 //   - -enum-timeout: Timeout for enumeration (default 10s)
 //   - -transfer-timeout: Timeout for data transfers (default 5s)
 //   - -hotplug-limit: Number of devices to service (host only, default 1)

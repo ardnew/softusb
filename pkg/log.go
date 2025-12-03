@@ -20,6 +20,15 @@ const (
 	ComponentEndpoint Component = "endpoint"
 )
 
+// LogFormat specifies the output format for logging.
+type LogFormat int
+
+// Log format options.
+const (
+	LogFormatText LogFormat = iota // Text format (default)
+	LogFormatJSON                  // JSON format
+)
+
 var (
 	// DefaultLogger is the default logger used by the USB stack.
 	DefaultLogger *slog.Logger
@@ -57,6 +66,20 @@ func SetLogger(logger *slog.Logger) {
 	logMutex.Lock()
 	defer logMutex.Unlock()
 	DefaultLogger = logger
+}
+
+// SetLogFormat configures the default logger to use the specified format.
+// The logger writes to os.Stderr and uses the current log level.
+func SetLogFormat(format LogFormat) {
+	logMutex.Lock()
+	defer logMutex.Unlock()
+	opts := &slog.HandlerOptions{Level: logLevel}
+	switch format {
+	case LogFormatJSON:
+		DefaultLogger = slog.New(slog.NewJSONHandler(os.Stderr, opts))
+	default:
+		DefaultLogger = slog.New(slog.NewTextHandler(os.Stderr, opts))
+	}
 }
 
 // NewLogger creates a new text logger writing to the given writer.
