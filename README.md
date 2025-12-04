@@ -255,6 +255,7 @@ Always use [Go doc](https://pkg.go.dev/github.com/ardnew/softusb) for the full A
 | [device/hal/fifo](device/hal/fifo) | FIFO-based device HAL implementation |
 | [device/class/cdc](device/class/cdc) | CDC-ACM class driver |
 | [device/class/hid](device/class/hid) | HID class driver |
+| [device/class/msc](device/class/msc) | Mass Storage class driver |
 
 ### Host Stack
 
@@ -278,6 +279,7 @@ Always use [Go doc](https://pkg.go.dev/github.com/ardnew/softusb) for the full A
 | [examples/fifo-hal](examples/fifo-hal) | FIFO-based HAL examples overview |
 | [examples/fifo-hal/cdc-acm](examples/fifo-hal/cdc-acm) | CDC-ACM serial device example |
 | [examples/fifo-hal/hid-keyboard](examples/fifo-hal/hid-keyboard) | HID keyboard device example |
+| [examples/fifo-hal/msc-disk](examples/fifo-hal/msc-disk) | Mass Storage Class disk device example |
 | [examples/linux-hal/hid-monitor](examples/linux-hal/hid-monitor) | Linux USB HID monitor example |
 
 ## Quick Start
