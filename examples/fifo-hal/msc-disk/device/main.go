@@ -70,7 +70,7 @@ func main() {
 		"blocks", storage.BlockCount())
 
 	// Create MSC driver
-	disk := msc.New(storage, "SoftUSB", "Virtual Disk")
+	disk := msc.New(storage, "softusb", "Virtual Disk")
 
 	// Create FIFO HAL
 	hal := fifo.New(busDir)
@@ -78,7 +78,7 @@ func main() {
 	// Build device
 	builder := device.NewDeviceBuilder().
 		WithVendorProduct(0x1234, 0x5680).
-		WithStrings("SoftUSB Example", "Mass Storage Device", "12345678").
+		WithStrings("softusb example", "Mass Storage Device", "12345678").
 		AddConfiguration(1)
 
 	// Configure MSC interface (bulkIn=0x81, bulkOut=0x01)

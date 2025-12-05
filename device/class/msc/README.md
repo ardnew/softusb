@@ -76,12 +76,12 @@ func main() {
     storage := msc.NewMemoryStorage(1024*1024, 512)
 
     // Create MSC driver
-    disk := msc.New(storage, "SoftUSB", "Virtual Disk")
+    disk := msc.New(storage, "softusb", "Virtual Disk")
 
     // Build device
     builder := device.NewDeviceBuilder().
         WithVendorProduct(0x1234, 0x5680).
-        WithStrings("SoftUSB Example", "Mass Storage Device", "12345678").
+        WithStrings("softusb example", "Mass Storage Device", "12345678").
         AddConfiguration(1)
 
     // Configure MSC interface (bulkIn=0x81, bulkOut=0x01)
@@ -119,7 +119,7 @@ storage, _ := msc.NewFileStorage("disk.img", 512, false)
 defer storage.Close()
 
 // Create MSC driver with file storage
-disk := msc.New(storage, "SoftUSB", "File Disk")
+disk := msc.New(storage, "softusb", "File Disk")
 
 // ... rest of setup same as above
 ```
@@ -130,7 +130,7 @@ disk := msc.New(storage, "SoftUSB", "File Disk")
 storage := msc.NewMemoryStorage(1024*1024, 512)
 storage.SetReadOnly(true)
 
-disk := msc.New(storage, "SoftUSB", "Read-Only Disk")
+disk := msc.New(storage, "softusb", "Read-Only Disk")
 // ... continue with device setup
 ```
 
@@ -140,7 +140,7 @@ disk := msc.New(storage, "SoftUSB", "Read-Only Disk")
 storage := msc.NewMemoryStorage(1024*1024, 512)
 storage.SetRemovable(true)
 
-disk := msc.New(storage, "SoftUSB", "Removable Disk")
+disk := msc.New(storage, "softusb", "Removable Disk")
 
 // Later: eject media
 storage.Eject()

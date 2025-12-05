@@ -8,7 +8,7 @@ This directory contains example USB device and host applications that use the FI
 
 ## Overview
 
-These examples demonstrate how to use the SoftUSB stack to create USB device and host applications. They communicate through named pipes (FIFOs), allowing you to test USB code on any Unix-like system.
+These examples demonstrate how to use the softusb stack to create USB device and host applications. They communicate through named pipes (FIFOs), allowing you to test USB code on any POSIX-compatible system.
 
 ### Available Examples
 
@@ -155,17 +155,17 @@ Available test flags:
 ## Architecture
 
 ```text
-┌─────────────────────┐        Bus Directory        ┌────────────────────┐
-│   Device Process    │       /tmp/usb-bus/         │   Host Process     │
-│                     │                             │                    │
-│  ┌───────────────┐  │    device-{uuid}/           │  ┌──────────────┐  │
-│  │ Device Stack  │  │    ├── connection           │  │  Host Stack  │  │
-│  └───────┬───────┘  │    ├── host_to_device       │  └──────┬───────┘  │
-│          │          │    ├── device_to_host       │         │          │
-│  ┌───────┴───────┐  │    ├── ep1_in, ep1_out      │  ┌──────┴───────┐  │
-│  │   FIFO HAL    │←─┼────┼── ep2_in, ep2_out ...──┼─→│   FIFO HAL   │  │
-│  └───────────────┘  │                             │  └──────────────┘  │
-└─────────────────────┘                             └────────────────────┘
+┌─────────────────────┐                                ┌────────────────────┐
+│   Device Process    │                                │   Host Process     │
+│                     │   {bus-directory}/             │                    │
+│  ┌───────────────┐  │   └── device-{uuid}/           │  ┌──────────────┐  │
+│  │ Device Stack  │  │       ├── connection           │  │  Host Stack  │  │
+│  └───────┬───────┘  │       ├── host_to_device       │  └──────┬───────┘  │
+│          │          │       ├── device_to_host       │         │          │
+│  ┌───────┴───────┐  │       ├── ep1_in, ep1_out      │  ┌──────┴───────┐  │
+│  │   FIFO HAL    │←─┼───────┼── ep2_in, ep2_out ...──┼─→│   FIFO HAL   │  │
+│  └───────────────┘  │                                │  └──────────────┘  │
+└─────────────────────┘                                └────────────────────┘
 ```
 
 ### Hot-Plugging
@@ -173,7 +173,7 @@ Available test flags:
 The FIFO HAL supports hot-plugging:
 
 - Each device creates a unique subdirectory (`device-{uuid}/`) using a cryptographically random UUID
-- The host polls the bus directory (every 50ms) for new device subdirectories
+- The host polls the `{bus-directory}` (every 50ms) for new device subdirectories
 - Devices signal connection/disconnection via the `connection` FIFO
 - Multiple devices can connect and disconnect independently
 
@@ -285,6 +285,6 @@ watch -n 0.5 'ls -la /tmp/usb-test/'
 
 ## Limitations
 
-- **Unix-Only**: Named pipes require a Unix-like system (Linux, macOS, etc.)
+- **POSIX-Only**: Named pipes require a POSIX-like system (Linux, macOS, etc.)
 - **No Real-Time**: Timing-sensitive protocols may not work correctly
 - **No Isochronous**: Isochronous transfer timing not guaranteed in software

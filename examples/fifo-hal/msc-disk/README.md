@@ -32,12 +32,14 @@ go test -v
 ### Manual Testing
 
 Terminal 1 (device):
+
 ```bash
 cd device
 go run . -v /tmp/usb-msc-test
 ```
 
 Terminal 2 (host):
+
 ```bash
 cd host
 go run . -v /tmp/usb-msc-test
@@ -61,11 +63,13 @@ Options:
 ### Examples
 
 Create a 10MB disk:
+
 ```bash
 go run ./device -size 10485760 /tmp/usb-msc-test
 ```
 
 Create a 512KB disk with verbose logging:
+
 ```bash
 go run ./device -size 524288 -v /tmp/usb-msc-test
 ```
@@ -115,20 +119,29 @@ The example demonstrates:
 ## Architecture
 
 ```text
-┌─────────────────┐         FIFO Bus          ┌─────────────────┐
-│  Device Process │  ←────────────────────→  │   Host Process  │
-│                 │  Named Pipes (FIFOs)      │                 │
-│  ┌───────────┐  │                           │  ┌───────────┐  │
-│  │ MSC Driver│  │                           │  │Host Stack │  │
-│  ├───────────┤  │                           │  └───────────┘  │
-│  │  Storage  │  │                           │                 │
-│  │(MemStorage)│  │                           │  Enumerates &  │
-│  ├───────────┤  │                           │  Detects MSC    │
-│  │FIFO Device│  │                           │  Device         │
-│  │    HAL    │  │                           │                 │
-│  └───────────┘  │                           │                 │
-└─────────────────┘                           └─────────────────┘
+┌───────────────────────┐                          ┌──────────────────────┐
+│    Device Process     │                          │    Host Process      │
+│  ┌─────────────────┐  │   {bus-directory}/       │                      │
+│  │    MSC Driver   │  │   └──device-{uuid}/      │  ┌────────────────┐  │
+│  └────────┬────────┘  │     ├── connection       │  │   Host Stack   │  │
+│  ┌────────┴────────┐  │     ├── host_to_device   │  │                │  │
+│  │ Storage Backend │  │     ├── device_to_host   │  └───────┬────────┘  │
+│  └────────┬────────┘  │     ├── ep1_in/out       │          │           │
+│  ┌────────┴────────┐  │     └── ep2_in/out ...   │  ┌───────┴────────┐  │
+│  │  Device Stack   │  │                          │  │   FIFO HAL     │  │
+│  │   + FIFO HAL    │←─┼──────────────────────────┼─→│  (discovery)   │  │
+│  └─────────────────┘  │                          │  └────────────────┘  │
+└───────────────────────┘                          └──────────────────────┘
 ```
+
+### Hot-Plugging Support
+
+The FIFO HAL supports hot-plugging:
+
+- Each device creates a unique subdirectory (`device-{uuid}/`)
+- The host polls the `{bus-directory}` for new device subdirectories
+- Devices signal connection/disconnection via the `connection` FIFO
+- Multiple devices can be connected independently
 
 ---
 
@@ -184,6 +197,7 @@ defer storage.Close()
 ### Add SCSI Command Testing
 
 Implement actual SCSI command testing in the host to:
+
 - Send INQUIRY and verify response
 - Read disk capacity
 - Perform block read/write operations
@@ -192,6 +206,7 @@ Implement actual SCSI command testing in the host to:
 ### Custom Storage Backend
 
 Create a custom storage backend that:
+
 - Compresses data on-the-fly
 - Implements wear leveling
 - Adds encryption
@@ -200,8 +215,9 @@ Create a custom storage backend that:
 ### File System Integration
 
 Mount the device as a real file system:
+
 - Format storage with FAT32
-- Create files and directories  
+- Create files and directories
 - Test with actual OS file operations
 
 ---

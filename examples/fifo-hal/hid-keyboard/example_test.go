@@ -9,9 +9,7 @@
 //
 //	go test -v ./examples/fifo-hal/hid-keyboard/ -args \
 //	    -enum-timeout=15s \
-//	    -transfer-timeout=10s \
-//	    -json \
-//	    -m
+//	    -transfer-timeout=10s
 //
 // Note: Use -args to pass flags to the test binary (after the test flags).
 package main

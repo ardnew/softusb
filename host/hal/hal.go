@@ -2,6 +2,7 @@ package hal
 
 import (
 	"context"
+	"strconv"
 )
 
 // Speed represents the USB connection speed.
@@ -19,13 +20,13 @@ const (
 func (s Speed) String() string {
 	switch s {
 	case SpeedLow:
-		return "Low Speed"
+		return "Low"
 	case SpeedFull:
-		return "Full Speed"
+		return "Full"
 	case SpeedHigh:
-		return "High Speed"
+		return "High"
 	default:
-		return "Unknown"
+		return "Unknown(" + strconv.FormatUint(uint64(s), 10) + ")"
 	}
 }
 

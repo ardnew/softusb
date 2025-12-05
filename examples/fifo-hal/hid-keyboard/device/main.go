@@ -91,7 +91,7 @@ func main() {
 
 	builder := device.NewDeviceBuilder().
 		WithVendorProduct(0x1234, 0x5679).
-		WithStrings("SoftUSB Example", "HID Keyboard", "87654321").
+		WithStrings("softusb example", "HID Keyboard", "87654321").
 		AddConfiguration(1)
 
 	keyboard := hid.New(keyboardReportDescriptor)

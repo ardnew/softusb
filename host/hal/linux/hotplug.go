@@ -5,6 +5,7 @@ package linux
 import (
 	"bytes"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -155,11 +156,26 @@ func (h *hotplugMonitor) processEvent() (bool, error) {
 			sysfsPath: sysfsPath,
 		}
 
-		// Try to parse bus/dev numbers from devpath
-		if busNum, devNum, ok := parseDevpathNumbers(evt.devpath); ok {
-			info.busNum = busNum
-			info.devNum = devNum
-			info.devfsPath = formatDevfsPath(busNum, devNum)
+		// Try to get bus/dev numbers from the uevent itself first
+		if evt.busnum != "" && evt.devnum != "" {
+			if busNum, err := parseUint8(evt.busnum); err == nil {
+				info.busNum = busNum
+			}
+			if devNum, err := parseUint8(evt.devnum); err == nil {
+				info.devNum = devNum
+			}
+			if info.busNum != 0 && info.devNum != 0 {
+				info.devfsPath = formatDevfsPath(info.busNum, info.devNum)
+			}
+		}
+
+		// Fallback: Try to parse bus/dev numbers from devpath (may fail if sysfs is gone)
+		if info.busNum == 0 || info.devNum == 0 {
+			if busNum, devNum, ok := parseDevpathNumbers(evt.devpath); ok {
+				info.busNum = busNum
+				info.devNum = devNum
+				info.devfsPath = formatDevfsPath(busNum, devNum)
+			}
 		}
 
 		select {
@@ -289,4 +305,17 @@ func bindNetlink(fd int) error {
 		return errno
 	}
 	return nil
+}
+
+// =============================================================================
+// Parsing Helpers
+// =============================================================================
+
+// parseUint8 parses a string as a uint8.
+func parseUint8(s string) (uint8, error) {
+	v, err := strconv.ParseUint(s, 10, 8)
+	if err != nil {
+		return 0, err
+	}
+	return uint8(v), nil
 }

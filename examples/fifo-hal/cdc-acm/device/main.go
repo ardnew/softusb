@@ -66,7 +66,7 @@ func main() {
 	// Create device using builder
 	builder := device.NewDeviceBuilder().
 		WithVendorProduct(0x1234, 0x5678).
-		WithStrings("SoftUSB Example", "CDC-ACM Serial Port", "12345678").
+		WithStrings("softusb example", "CDC-ACM Serial Port", "12345678").
 		AddConfiguration(1)
 
 	// Create and register CDC-ACM class driver

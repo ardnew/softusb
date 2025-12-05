@@ -18,6 +18,7 @@ import (
 	"github.com/ardnew/softusb/host/hal"
 	"github.com/ardnew/softusb/host/hal/linux"
 	"github.com/ardnew/softusb/pkg"
+	"github.com/ardnew/softusb/pkg/linux/usbid"
 )
 
 // Component identifier for hid-monitor logging.
@@ -29,6 +30,9 @@ var (
 	vendorID  = flag.String("vid", "", "Filter by Vendor ID (hex)")
 	productID = flag.String("pid", "", "Filter by Product ID (hex)")
 )
+
+// Global USB ID database
+var usbIDs *usbid.Database
 
 // =============================================================================
 // Output Events
@@ -46,12 +50,12 @@ type deviceConnectedEvent struct {
 }
 
 func (e deviceConnectedEvent) log() {
-	pkg.LogDebug(componentMonitor, "device connected",
+	pkg.LogInfo(componentMonitor, "device connected",
 		"port", e.port,
-		"speed", e.speed.String())
+		"speed", e.speed)
 }
 
-// deviceEnumeratedEvent is sent after a device has been fully enumerated.
+// deviceEnumeratedEvent is sent when a device is enumerated (success or error).
 type deviceEnumeratedEvent struct {
 	info          *deviceInfo
 	matchesFilter bool
@@ -83,8 +87,8 @@ func (e deviceEnumeratedEvent) log() {
 
 	attrs := []any{
 		"port", e.info.port,
-		"vid", e.info.vid,
-		"pid", e.info.pid,
+		"vid", hexID(e.info.vid),
+		"pid", hexID(e.info.pid),
 		"speed", e.info.speed.String(),
 	}
 	if e.info.manufacturer != "" {
@@ -159,6 +163,18 @@ func (e interfaceClaimErrorEvent) log() {
 }
 
 // =============================================================================
+// Formatting Helpers
+// =============================================================================
+
+// hexID formats a USB ID (VID/PID) as a 4-digit lowercase hexadecimal string.
+type hexID uint16
+
+// String implements fmt.Stringer for hexID.
+func (h hexID) String() string {
+	return fmt.Sprintf("%04x", uint16(h))
+}
+
+// =============================================================================
 // Device Registry
 // =============================================================================
 
@@ -226,8 +242,8 @@ func (r *deviceRegistry) logSummary() {
 
 		attrs := []any{
 			"port", dev.port,
-			"vid", dev.vid,
-			"pid", dev.pid,
+			"vid", hexID(dev.vid),
+			"pid", hexID(dev.pid),
 			"speed", dev.speed.String(),
 		}
 		if dev.manufacturer != "" {
@@ -268,6 +284,44 @@ var registry = newDeviceRegistry()
 // outputCh is the channel for serialized output events
 var outputCh = make(chan outputEvent, 100)
 
+// terminalState holds the original terminal state for restoration.
+type terminalState struct {
+	fd      int
+	termios syscall.Termios
+	set     bool
+	mu      sync.Mutex
+}
+
+var origTerminal terminalState
+
+// restoreTerminal restores the terminal to its original state.
+func restoreTerminal() {
+	origTerminal.mu.Lock()
+	defer origTerminal.mu.Unlock()
+	if origTerminal.set {
+		syscall.Syscall6(syscall.SYS_IOCTL, uintptr(origTerminal.fd),
+			syscall.TCSETS, uintptr(unsafe.Pointer(&origTerminal.termios)), 0, 0, 0)
+		origTerminal.set = false
+	}
+}
+
+// terminalWidth returns the current terminal width in columns, or a default if not available.
+func terminalWidth() int {
+	fd := int(os.Stdout.Fd())
+	type winsize struct {
+		Row    uint16
+		Col    uint16
+		Xpixel uint16
+		Ypixel uint16
+	}
+	ws := winsize{}
+	_, _, err := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws)))
+	if err == 0 && ws.Col > 0 {
+		return int(ws.Col)
+	}
+	return 120 // fallback default
+}
+
 func main() {
 	flag.Parse()
 
@@ -282,6 +336,10 @@ func main() {
 	if *jsonOut {
 		pkg.SetLogFormat(pkg.LogFormatJSON)
 	}
+
+	// Load USB ID database for device name lookups
+	usbIDs = usbid.New()
+	usbIDs.Load()
 
 	// Create HAL
 	halImpl := linux.NewHostHAL()
@@ -302,12 +360,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Handle signals for graceful shutdown
+	// Handle signals for graceful shutdown, ensuring terminal is restored
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
+
+	// Ensure terminal is restored on exit
+	defer restoreTerminal()
 
 	pkg.LogInfo(componentMonitor, "started",
-		"message", "Waiting for HID devices... (Ctrl+T for device summary, Ctrl+C to exit)")
+		"message", "Waiting for HID devices... (Ctrl+T for device summary, Ctrl+L to clear, Ctrl+C to exit)")
 
 	// Start output logger goroutine
 	go outputLogger(ctx)
@@ -396,12 +457,17 @@ func handleKeyboard(ctx context.Context, cancel context.CancelFunc) {
 	// Get the current terminal state
 	fd := int(os.Stdin.Fd())
 
-	// Read terminal attributes
-	var oldTermios syscall.Termios
+	// Read terminal attributes and save to global state for signal handler restoration
+	origTerminal.mu.Lock()
 	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd),
-		syscall.TCGETS, uintptr(unsafe.Pointer(&oldTermios)), 0, 0, 0); err != 0 {
+		syscall.TCGETS, uintptr(unsafe.Pointer(&origTerminal.termios)), 0, 0, 0); err != 0 {
+		origTerminal.mu.Unlock()
 		return // Can't get terminal state, skip keyboard handling
 	}
+	origTerminal.fd = fd
+	origTerminal.set = true
+	oldTermios := origTerminal.termios
+	origTerminal.mu.Unlock()
 
 	// Set raw mode
 	newTermios := oldTermios
@@ -414,11 +480,8 @@ func handleKeyboard(ctx context.Context, cancel context.CancelFunc) {
 		return
 	}
 
-	// Restore terminal on exit
-	defer func() {
-		syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd),
-			syscall.TCSETS, uintptr(unsafe.Pointer(&oldTermios)), 0, 0, 0)
-	}()
+	// Restore terminal on goroutine exit (backup, main defer also handles this)
+	defer restoreTerminal()
 
 	buf := make([]byte, 1)
 	for {
@@ -436,6 +499,8 @@ func handleKeyboard(ctx context.Context, cancel context.CancelFunc) {
 		switch buf[0] {
 		case 0x14: // Ctrl+T
 			registry.logSummary()
+		case 0x0C: // Ctrl+L
+			fmt.Print("\033[H\033[2J") // ANSI escape: move cursor home and clear screen
 		case 0x03: // Ctrl+C
 			cancel()
 			return
@@ -507,7 +572,7 @@ func handleDevice(ctx context.Context, halImpl hal.HostHAL, addr hal.DeviceAddre
 		}
 	}
 
-	// Read string descriptors
+	// Read string descriptors from device
 	if manufacturerIdx != 0 {
 		devInfo.manufacturer = readStringDescriptor(ctx, halImpl, addr, manufacturerIdx)
 	}
@@ -516,6 +581,14 @@ func handleDevice(ctx context.Context, halImpl hal.HostHAL, addr hal.DeviceAddre
 	}
 	if serialIdx != 0 {
 		devInfo.serialNumber = readStringDescriptor(ctx, halImpl, addr, serialIdx)
+	}
+
+	// Fall back to USB ID database if device doesn't provide strings
+	if devInfo.manufacturer == "" {
+		devInfo.manufacturer = usbIDs.LookupVendor(vid)
+	}
+	if devInfo.product == "" {
+		devInfo.product = usbIDs.LookupProduct(vid, pid)
 	}
 
 	// Get configuration descriptor
@@ -599,14 +672,21 @@ func readStringDescriptor(ctx context.Context, halImpl hal.HostHAL, addr hal.Dev
 		return ""
 	}
 
+	// First, get the list of supported language IDs (string descriptor 0)
+	langID := getSupportedLanguageID(ctx, halImpl, addr)
+	if langID == 0 {
+		// Fallback to US English if we can't get supported languages
+		langID = 0x0409
+	}
+
 	var buf [256]byte
 
-	// Request string descriptor (using US English language ID 0x0409)
+	// Request string descriptor using the device's preferred language
 	setup := &hal.SetupPacket{
 		RequestType: 0x80,                   // Device to host, standard, device
 		Request:     0x06,                   // GET_DESCRIPTOR
 		Value:       0x0300 | uint16(index), // String descriptor type (0x03) + index
-		Index:       0x0409,                 // US English
+		Index:       langID,
 		Length:      uint16(len(buf)),
 	}
 
@@ -637,6 +717,39 @@ func readStringDescriptor(ctx context.Context, halImpl hal.HostHAL, addr hal.Dev
 	}
 
 	return string(result)
+}
+
+// getSupportedLanguageID retrieves the first supported language ID from a USB device.
+// Returns 0 if the language list cannot be retrieved.
+func getSupportedLanguageID(ctx context.Context, halImpl hal.HostHAL, addr hal.DeviceAddress) uint16 {
+	var buf [256]byte
+
+	// Request string descriptor 0 (list of supported language IDs)
+	setup := &hal.SetupPacket{
+		RequestType: 0x80,   // Device to host, standard, device
+		Request:     0x06,   // GET_DESCRIPTOR
+		Value:       0x0300, // String descriptor type (0x03) + index 0
+		Index:       0,      // No language ID needed for descriptor 0
+		Length:      uint16(len(buf)),
+	}
+
+	n, err := halImpl.ControlTransfer(ctx, addr, setup, buf[:])
+	if err != nil {
+		return 0
+	}
+
+	// Minimum valid response: 4 bytes (2 byte header + at least one 2-byte language ID)
+	if n < 4 {
+		return 0
+	}
+
+	length := int(buf[0])
+	if length < 4 || length > n {
+		return 0
+	}
+
+	// First language ID is at bytes 2-3 (little-endian)
+	return uint16(buf[2]) | uint16(buf[3])<<8
 }
 
 // hidInterface describes an HID interface with its interrupt endpoint.

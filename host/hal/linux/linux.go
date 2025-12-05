@@ -475,6 +475,20 @@ func (h *HostHAL) onHotplugEvent(events uint32) {
 
 // handleDeviceAdd handles a device add event.
 func (h *HostHAL) handleDeviceAdd(info usbDeviceInfo) {
+	// Check if device is already tracked (avoid duplicates from initial scan + hotplug)
+	h.devices.mu.Lock()
+	for i := 0; i < MaxDevices; i++ {
+		conn := h.devices.slots[i].conn
+		if conn != nil && conn.info.busNum == info.busNum && conn.info.devNum == info.devNum {
+			h.devices.mu.Unlock()
+			pkg.LogDebug(pkg.ComponentHAL, "device already tracked, skipping",
+				"bus", info.busNum,
+				"dev", info.devNum)
+			return
+		}
+	}
+	h.devices.mu.Unlock()
+
 	// Allocate a device slot - returns slot index
 	slotIdx := h.devices.alloc(0) // Port will be set below
 	if slotIdx < 0 {

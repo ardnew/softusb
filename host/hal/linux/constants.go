@@ -5,7 +5,9 @@ package linux
 // =============================================================================
 
 // MaxDevices is the maximum number of devices that can be tracked simultaneously.
-const MaxDevices = 16
+// USB 2.0 supports up to 127 devices per bus, but we use a practical limit that
+// accommodates typical systems with multiple USB controllers and hubs.
+const MaxDevices = 64
 
 // MaxEndpointsPerDevice is the maximum number of endpoints per device.
 // USB 2.0 allows up to 16 endpoints per direction (32 total including directions).

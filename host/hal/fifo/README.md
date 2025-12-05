@@ -13,7 +13,7 @@ The FIFO HAL simulates USB communication by using the filesystem to exchange dat
 ### Key Features
 
 - **No Hardware Required**: Test USB host code on any system
-- **Cross-Platform**: Works on Linux, macOS, and other Unix-like systems
+- **Cross-Platform**: Works on any POSIX-compatible system
 - **Full USB Simulation**: Supports control, bulk, and interrupt transfers
 - **Device Enumeration**: Complete device enumeration simulation
 
@@ -22,27 +22,17 @@ The FIFO HAL simulates USB communication by using the filesystem to exchange dat
 ## Architecture
 
 ```text
-┌─────────────────┐                          ┌─────────────────┐
-│   Host Process  │                          │  Device Process │
-│                 │                          │                 │
-│   Host Stack    │                          │   Device Stack  │
-│        │        │                          │        │        │
-│   FIFO Host     │                          │   FIFO Device   │
-│      HAL        │                          │      HAL        │
-└────────┬────────┘                          └────────┬────────┘
-         │                                            │
-         │    ┌──────────────────────────────────┐    │
-         └────│         Bus Directory            │────┘
-              │        /tmp/usb-bus/             │
-              │                                  │
-              │  device-{uuid}/                  │
-              │  ├── connection  (device signal) │
-              │  ├── host_to_device (control)    │
-              │  ├── device_to_host (control)    │
-              │  ├── ep1_in, ep1_out             │
-              │  ├── ep2_in, ep2_out             │
-              │  └── ... (up to ep15)            │
-              └──────────────────────────────────┘
+┌─────────────────────┐                                ┌────────────────────┐
+│   Device Process    │                                │   Host Process     │
+│                     │   {bus-directory}/             │                    │
+│  ┌───────────────┐  │   └── device-{uuid}/           │  ┌──────────────┐  │
+│  │ Device Stack  │  │       ├── connection           │  │  Host Stack  │  │
+│  └───────┬───────┘  │       ├── host_to_device       │  └──────┬───────┘  │
+│          │          │       ├── device_to_host       │         │          │
+│  ┌───────┴───────┐  │       ├── ep1_in, ep1_out      │  ┌──────┴───────┐  │
+│  │   FIFO HAL    │←─┼───────┼── ep2_in, ep2_out ...──┼─→│   FIFO HAL   │  │
+│  └───────────────┘  │                                │  └──────────────┘  │
+└─────────────────────┘                                └────────────────────┘
 ```
 
 ### Hot-Plugging Support
@@ -215,7 +205,7 @@ See [`examples/fifo-hal/hid-keyboard/host/`](../../../examples/fifo-hal/hid-keyb
 
 ## Limitations
 
-- **Unix-Only**: Named pipes are not available on Windows (use WSL)
+- **POSIX-Only**: Requires filesystem with support for named pipes (FIFOs)
 - **No Hub Support**: Hub enumeration not simulated
 - **No Isochronous**: Real-time guarantees not supported in software
 - **Sequential Processing**: Devices are processed one at a time

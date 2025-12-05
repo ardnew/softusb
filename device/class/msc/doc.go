@@ -49,12 +49,12 @@
 //	storage := msc.NewMemoryStorage(1024*1024, 512)
 //
 //	// Create MSC driver
-//	disk := msc.New(storage, "SoftUSB", "Virtual Disk")
+//	disk := msc.New(storage, "softusb", "Virtual Disk")
 //
 //	// Configure device with builder
 //	builder := device.NewDeviceBuilder().
 //	    WithVendorProduct(0x1234, 0x5680).
-//	    WithStrings("SoftUSB", "Mass Storage", "12345678").
+//	    WithStrings("softusb", "Mass Storage", "12345678").
 //	    AddConfiguration(1)
 //
 //	// Add MSC interface (bulkIn=0x81, bulkOut=0x01)

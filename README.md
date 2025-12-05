@@ -67,11 +67,11 @@ The [examples/fifo-hal](examples/fifo-hal) directory contains several example ap
         time=2025-12-03T16:54:16.010-06:00 level=DEBUG msg="assigned address" component=host address=1
         time=2025-12-03T16:54:16.010-06:00 level=DEBUG msg="device descriptor" component=host vendorID=4660 productID=22136 class=0
         time=2025-12-03T16:54:16.010-06:00 level=DEBUG msg="configuration descriptor" component=host numInterfaces=2 configValue=1
-        time=2025-12-03T16:54:16.010-06:00 level=DEBUG msg=manufacturer component=host value="SoftUSB Example"
+        time=2025-12-03T16:54:16.010-06:00 level=DEBUG msg=manufacturer component=host value="softusb example"
         time=2025-12-03T16:54:16.010-06:00 level=DEBUG msg=product component=host value="CDC-ACM Serial Port"
         time=2025-12-03T16:54:16.011-06:00 level=DEBUG msg=serial component=host value=12345678
         time=2025-12-03T16:54:16.011-06:00 level=DEBUG msg="device enumerated" component=host address=1 vendor=4660 product=22136
-        time=2025-12-03T16:54:16.011-06:00 level=INFO msg="Device connected" component=host vendorID=4660 productID=22136 manufacturer="SoftUSB Example" product="CDC-ACM Serial Port" serial=12345678
+        time=2025-12-03T16:54:16.011-06:00 level=INFO msg="Device connected" component=host vendorID=4660 productID=22136 manufacturer="softusb example" product="CDC-ACM Serial Port" serial=12345678
         time=2025-12-03T16:54:16.011-06:00 level=INFO msg="CDC-ACM device detected!" component=host
         time=2025-12-03T16:54:16.011-06:00 level=INFO msg="found bulk endpoints" component=host bulkIn=130 bulkOut=2
         time=2025-12-03T16:54:16.011-06:00 level=INFO msg="sending data" component=host data="Hello from USB Host!"
@@ -155,11 +155,11 @@ ok      github.com/ardnew/softusb/examples/fifo-hal/cdc-acm     1.337s
         time=2025-12-03T17:06:02.128-06:00 level=DEBUG msg="assigned address" component=host address=1
         time=2025-12-03T17:06:02.128-06:00 level=DEBUG msg="device descriptor" component=host vendorID=4660 productID=22137 class=0
         time=2025-12-03T17:06:02.128-06:00 level=DEBUG msg="configuration descriptor" component=host numInterfaces=1 configValue=1
-        time=2025-12-03T17:06:02.128-06:00 level=DEBUG msg=manufacturer component=host value="SoftUSB Example"
+        time=2025-12-03T17:06:02.128-06:00 level=DEBUG msg=manufacturer component=host value="softusb example"
         time=2025-12-03T17:06:02.128-06:00 level=DEBUG msg=product component=host value="HID Keyboard"
         time=2025-12-03T17:06:02.128-06:00 level=DEBUG msg=serial component=host value=87654321
         time=2025-12-03T17:06:02.128-06:00 level=DEBUG msg="device enumerated" component=host address=1 vendor=4660 product=22137
-        time=2025-12-03T17:06:02.128-06:00 level=INFO msg="Device connected" component=host vendorID=4660 productID=22137 manufacturer="SoftUSB Example" product="HID Keyboard" serial=87654321
+        time=2025-12-03T17:06:02.128-06:00 level=INFO msg="Device connected" component=host vendorID=4660 productID=22137 manufacturer="softusb example" product="HID Keyboard" serial=87654321
         time=2025-12-03T17:06:02.128-06:00 level=INFO msg="HID device detected!" component=host
         time=2025-12-03T17:06:02.128-06:00 level=INFO msg="found interrupt endpoint" component=host interruptIn=129
         time=2025-12-03T17:06:02.128-06:00 level=INFO msg="reading HID reports" component=host

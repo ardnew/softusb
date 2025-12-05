@@ -20,19 +20,19 @@ Both processes communicate via named pipes (FIFOs) in a shared bus directory.
 ## Architecture
 
 ```text
-┌──────────────────────┐    Bus Directory     ┌──────────────────────┐
-│    Device Process    │    /tmp/usb-bus/     │    Host Process      │
-│                      │                      │                      │
-│  ┌────────────────┐  │   device-{uuid}/     │  ┌────────────────┐  │
-│  │  CDC-ACM ACM   │  │  ├── connection      │  │   Host Stack   │  │
-│  │    Driver      │  │  ├── host_to_device  │  │                │  │
-│  └───────┬────────┘  │  ├── device_to_host  │  └───────┬────────┘  │
-│          │           │  ├── ep1_in/out      │          │           │
-│  ┌───────┴────────┐  │  └── ep2_in/out      │  ┌───────┴────────┐  │
-│  │  Device Stack  │  │                      │  │   FIFO HAL     │  │
-│  │  + FIFO HAL    │←─┼──────────────────────┼─→│  (discovery)   │  │
-│  └────────────────┘  │                      │  └────────────────┘  │
-└──────────────────────┘                      └──────────────────────┘
+┌──────────────────────┐                          ┌──────────────────────┐
+│    Device Process    │                          │    Host Process      │
+│                      │   {bus-directory}/       │                      │
+│  ┌────────────────┐  │   └──device-{uuid}/      │  ┌────────────────┐  │
+│  │    CDC-ACM     │  │     ├── connection       │  │   Host Stack   │  │
+│  │     Driver     │  │     ├── host_to_device   │  │                │  │
+│  └───────┬────────┘  │     ├── device_to_host   │  └───────┬────────┘  │
+│          │           │     ├── ep1_in/out       │          │           │
+│  ┌───────┴────────┐  │     └── ep2_in/out ...   │  ┌───────┴────────┐  │
+│  │  Device Stack  │  │                          │  │   FIFO HAL     │  │
+│  │  + FIFO HAL    │←─┼──────────────────────────┼─→│  (discovery)   │  │
+│  └────────────────┘  │                          │  └────────────────┘  │
+└──────────────────────┘                          └──────────────────────┘
 ```
 
 ### Hot-Plugging Support
@@ -40,9 +40,9 @@ Both processes communicate via named pipes (FIFOs) in a shared bus directory.
 The FIFO HAL supports hot-plugging:
 
 - Each device creates a unique subdirectory (`device-{uuid}/`)
-- The host polls the bus directory for new device subdirectories
-- Devices can connect/disconnect independently
-- Multiple devices can be connected sequentially
+- The host polls the `{bus-directory}` for new device subdirectories
+- Devices signal connection/disconnection via the `connection` FIFO
+- Multiple devices can be connected independently
 
 ---
 
@@ -131,18 +131,13 @@ go test -v ./examples/fifo-hal/cdc-acm/ -args \
     -enum-timeout=15s \
     -transfer-timeout=10s
 
-# Run with verbose logging
-go test -v ./examples/fifo-hal/cdc-acm/ -args -verbose
-
 # Run with JSON log output
 go test -v ./examples/fifo-hal/cdc-acm/ -args -json
 
 # Run with merged output (host and device to single stream)
-go test -v ./examples/fifo-hal/cdc-acm/ -args -m
-
+go test -v ./examples/fifo-hal/cdc-acm/ -args -merge-output
 # Combined options
-go test -v ./examples/fifo-hal/cdc-acm/ -args \
-    -verbose -json -m
+go test -v ./examples/fifo-hal/cdc-acm/ -args -json -merge-output
 ```
 
 **Note:** Use `-args` to pass flags to the test binary (after the Go test flags).
@@ -153,9 +148,8 @@ go test -v ./examples/fifo-hal/cdc-acm/ -args \
 |------|-------------|
 | `-enum-timeout` | Timeout for USB enumeration (default 10s) |
 | `-transfer-timeout` | Timeout for data transfers (default 5s) |
-| `-verbose` | Enable debug logging in host and device processes |
 | `-json` | Use JSON log format for structured output |
-| `-m` | Merge host and device output into a single stream |
+| `-merge-output` | Merge host and device output into a single stream |
 
 ### Test Cases
 
@@ -189,7 +183,7 @@ Waiting for device connection...
 Device connected:
   Vendor ID:  0x1234
   Product ID: 0x5678
-  Manufacturer: SoftUSB Example
+  Manufacturer: softusb example
   Product: CDC-ACM Serial Port
   Serial: 12345678
 CDC-ACM device detected!
