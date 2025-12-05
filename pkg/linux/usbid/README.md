@@ -81,6 +81,7 @@ The main database type that caches vendor and product names.
 #### `New() *Database`
 
 Creates a new USB ID database that searches the default paths:
+
 - `/usr/share/hwdata/usb.ids`
 - `/var/lib/usbutils/usb.ids`
 - `/usr/share/misc/usb.ids`
@@ -123,13 +124,14 @@ All methods are safe for concurrent use. The database uses read-write locks to a
 
 The USB ID database uses a simple text format:
 
-```
+```text
 # Comment lines start with #
+#  (Product lines are indented with a single tab '\t' — shown below as 8 spaces)
 1234  Vendor Name
-	5678  Product Name
-	9abc  Another Product
+        5678  Product Name
+        9abc  Another Product
 abcd  Another Vendor
-	def0  Product Name
+        def0  Product Name
 ```
 
 - Vendor lines start at column 0 with a 4-digit hexadecimal VID
@@ -139,6 +141,7 @@ abcd  Another Vendor
 ## Error Handling
 
 The package is designed to be resilient:
+
 - If the database file is not found, lookups return empty strings
 - Malformed lines are silently skipped
 - Thread-safe concurrent access is guaranteed
@@ -152,6 +155,7 @@ go test -v ./pkg/linux/usbid/
 ```
 
 The test suite includes:
+
 - Basic parsing and lookup tests
 - Idempotent load verification
 - Malformed input handling

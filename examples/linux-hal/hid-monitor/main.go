@@ -558,14 +558,14 @@ func handleDevice(ctx context.Context, halImpl hal.HostHAL, addr hal.DeviceAddre
 	// Check vendor/product ID filter
 	matchesFilter := true
 	if *vendorID != "" {
-		if filterVID, err := strconv.ParseUint(*vendorID, 16, 16); err == nil {
+		if filterVID, err2 := strconv.ParseUint(*vendorID, 16, 16); err2 == nil {
 			if vid != uint16(filterVID) {
 				matchesFilter = false
 			}
 		}
 	}
 	if *productID != "" {
-		if filterPID, err := strconv.ParseUint(*productID, 16, 16); err == nil {
+		if filterPID, err2 := strconv.ParseUint(*productID, 16, 16); err2 == nil {
 			if pid != uint16(filterPID) {
 				matchesFilter = false
 			}
