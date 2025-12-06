@@ -37,6 +37,7 @@ to enable the softusb device stack to run on embedded hardware.
 ### Prerequisites
 
 1. Install TinyGo (0.30.0 or later recommended):
+
    ```bash
    # macOS
    brew install tinygo

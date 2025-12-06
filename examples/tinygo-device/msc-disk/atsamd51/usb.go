@@ -3,6 +3,7 @@
 package main
 
 import (
+	"device/arm"
 	"runtime/volatile"
 	"unsafe"
 )
@@ -12,19 +13,19 @@ const usbBase uintptr = 0x41000000
 
 // USB device register offsets
 const (
-	offsetCTRLA       = 0x00 // Control A
-	offsetSYNCBUSY    = 0x02 // Synchronization Busy
-	offsetQOSCTRL     = 0x03 // QOS Control
-	offsetCTRLB       = 0x08 // Control B
-	offsetDADD        = 0x0A // Device Address
-	offsetSTATUS      = 0x0C // Status
-	offsetFSMSTATUS   = 0x0D // Finite State Machine Status
-	offsetFNUM        = 0x10 // Frame Number
-	offsetINTENSET    = 0x18 // Interrupt Enable Set
-	offsetINTFLAG     = 0x1C // Interrupt Flag
-	offsetEPINTSMRY   = 0x20 // Endpoint Interrupt Summary
-	offsetDESCADD     = 0x24 // Descriptor Address
-	offsetPADCAL      = 0x28 // Pad Calibration
+	offsetCTRLA       = 0x00  // Control A
+	offsetSYNCBUSY    = 0x02  // Synchronization Busy
+	offsetQOSCTRL     = 0x03  // QOS Control
+	offsetCTRLB       = 0x08  // Control B
+	offsetDADD        = 0x0A  // Device Address
+	offsetSTATUS      = 0x0C  // Status
+	offsetFSMSTATUS   = 0x0D  // Finite State Machine Status
+	offsetFNUM        = 0x10  // Frame Number
+	offsetINTENSET    = 0x18  // Interrupt Enable Set
+	offsetINTFLAG     = 0x1C  // Interrupt Flag
+	offsetEPINTSMRY   = 0x20  // Endpoint Interrupt Summary
+	offsetDESCADD     = 0x24  // Descriptor Address
+	offsetPADCAL      = 0x28  // Pad Calibration
 	offsetEPCFG       = 0x100 // Endpoint Configuration (array, stride 0x20)
 	offsetEPSTATUSCLR = 0x104 // Endpoint Status Clear (array, stride 0x20)
 	offsetEPSTATUSSET = 0x105 // Endpoint Status Set (array, stride 0x20)
@@ -47,12 +48,12 @@ const (
 
 // CTRLB register bits
 const (
-	ctrlbDETACH   = 1 << 0  // Detach
-	ctrlbUPRSM    = 1 << 1  // Upstream Resume
-	ctrlbSPDCONF  = 3 << 2  // Speed Configuration mask
-	ctrlbNREPLY   = 1 << 4  // No Reply
-	ctrlbGNAK     = 1 << 9  // Global NAK
-	ctrlbLPMHDSK  = 3 << 10 // Link Power Management Handshake mask
+	ctrlbDETACH  = 1 << 0  // Detach
+	ctrlbUPRSM   = 1 << 1  // Upstream Resume
+	ctrlbSPDCONF = 3 << 2  // Speed Configuration mask
+	ctrlbNREPLY  = 1 << 4  // No Reply
+	ctrlbGNAK    = 1 << 9  // Global NAK
+	ctrlbLPMHDSK = 3 << 10 // Link Power Management Handshake mask
 )
 
 // CTRLB speed configuration values
@@ -74,13 +75,13 @@ const (
 
 // EPINTFLAG register bits
 const (
-	epintflagTRCPT0 = 1 << 0 // Transfer Complete 0 (OUT)
-	epintflagTRCPT1 = 1 << 1 // Transfer Complete 1 (IN)
+	epintflagTRCPT0  = 1 << 0 // Transfer Complete 0 (OUT)
+	epintflagTRCPT1  = 1 << 1 // Transfer Complete 1 (IN)
 	epintflagTRFAIL0 = 1 << 2 // Transfer Fail 0
 	epintflagTRFAIL1 = 1 << 3 // Transfer Fail 1
-	epintflagRXSTP  = 1 << 4 // Received Setup
-	epintflagSTALL0 = 1 << 5 // Stall 0
-	epintflagSTALL1 = 1 << 6 // Stall 1
+	epintflagRXSTP   = 1 << 4 // Received Setup
+	epintflagSTALL0  = 1 << 5 // Stall 0
+	epintflagSTALL1  = 1 << 6 // Stall 1
 )
 
 // EPSTATUS register bits
@@ -113,15 +114,15 @@ const (
 
 // MCLK register addresses
 const (
-	mclkBase       uintptr = 0x40000800
-	mclkAHBMASK            = mclkBase + 0x10
-	mclkAPBBMASK           = mclkBase + 0x18
+	mclkBase     uintptr = 0x40000800
+	mclkAHBMASK          = mclkBase + 0x10
+	mclkAPBBMASK         = mclkBase + 0x18
 )
 
 // GCLK register addresses
 const (
-	gclkBase     uintptr = 0x40001C00
-	gclkPCHCTRL          = gclkBase + 0x80 // Peripheral channel control (array)
+	gclkBase    uintptr = 0x40001C00
+	gclkPCHCTRL         = gclkBase + 0x80 // Peripheral channel control (array)
 )
 
 // GCLK peripheral IDs
@@ -377,6 +378,6 @@ func delayMicroseconds(us uint32) {
 	cycles := us * 12 // ~12 cycles per microsecond at 120MHz
 	for i := uint32(0); i < cycles; i++ {
 		// Prevent optimizer from removing the loop
-		volatile.Asm("nop")
+		arm.Asm("nop")
 	}
 }

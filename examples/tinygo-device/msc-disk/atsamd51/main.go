@@ -29,7 +29,7 @@ func main() {
 	storage := NewQSPIStorage()
 
 	// Create MSC driver
-	disk := msc.New(storage, "softusb", "QSPI Flash")
+	disk := msc.New(storage, "SoftUSB", "QSPI Flash")
 
 	// Create HAL
 	hal := New()

@@ -10,11 +10,11 @@ import (
 // QSPI flash constants for GD25Q64 (8MB) on Grand Central M4
 const (
 	// Flash geometry
-	qspiFlashSize      = 8 * 1024 * 1024 // 8MB
-	qspiSectorSize     = 4096            // 4KB sectors
-	qspiPageSize       = 256             // 256 byte pages
-	qspiBlockSize      = 512             // USB block size for MSC
-	qspiBlockCount     = qspiFlashSize / qspiBlockSize
+	qspiFlashSize  = 8 * 1024 * 1024 // 8MB
+	qspiSectorSize = 4096            // 4KB sectors
+	qspiPageSize   = 256             // 256 byte pages
+	qspiBlockSize  = 512             // USB block size for MSC
+	qspiBlockCount = qspiFlashSize / qspiBlockSize
 
 	// QSPI commands for GD25Q64
 	cmdReadID          = 0x9F // Read JEDEC ID
@@ -32,8 +32,8 @@ const (
 	cmdChipErase       = 0xC7 // Chip erase
 
 	// Status register bits
-	statusBusy         = 0x01 // Write in progress
-	statusWEL          = 0x02 // Write enable latch
+	statusBusy = 0x01 // Write in progress
+	statusWEL  = 0x02 // Write enable latch
 )
 
 // QSPI peripheral base address
@@ -102,9 +102,9 @@ func (s *QSPIStorage) init() {
 	// Configure QSPI in Serial Memory Mode
 	// LOOPEN=0, CSMODE=NORELOAD, DATALEN=8 bits
 	qspiReg32(qspiCTRLB).Set(
-		(0 << 1) |  // LOOPEN = 0
-		(0 << 4) |  // CSMODE = 0 (NORELOAD)
-		(0 << 8))   // DATALEN = 0 (8 bits)
+		(0 << 1) | // LOOPEN = 0
+			(0 << 4) | // CSMODE = 0 (NORELOAD)
+			(0 << 8)) // DATALEN = 0 (8 bits)
 
 	// Set baud rate (divide by 2 for maximum speed)
 	qspiReg32(qspiBAUD).Set(1) // BAUD = 1 (divide by 2)
@@ -125,23 +125,23 @@ func (s *QSPIStorage) configureMemoryMode() {
 	instrctrl := qspiReg32(qspiINSTRCTRL)
 	instrctrl.Set(
 		uint32(cmdQuadRead) | // Instruction code
-		(0 << 8))             // Option code
+			(0 << 8)) // Option code
 
 	// Configure instruction frame
 	// WIDTH=QUAD_IO, INSTREN, ADDREN, DATAEN, etc.
 	instrframe := qspiReg32(qspiINSTRFRAME)
 	instrframe.Set(
-		(4 << 0) |  // WIDTH = QUAD_IO
-		(1 << 4) |  // INSTREN = 1
-		(1 << 5) |  // ADDREN = 1
-		(0 << 6) |  // OPTCODEEN = 0
-		(1 << 7) |  // DATAEN = 1
-		(0 << 8) |  // OPTCODELEN = 0
-		(3 << 12) | // ADDRLEN = 3 (24-bit address)
-		(1 << 14) | // TFRTYPE = 1 (read)
-		(0 << 15) | // CRMODE = 0
-		(1 << 16) | // DDREN = 0
-		(4 << 17))  // DUMMYLEN = 4 dummy cycles
+		(4 << 0) | // WIDTH = QUAD_IO
+			(1 << 4) | // INSTREN = 1
+			(1 << 5) | // ADDREN = 1
+			(0 << 6) | // OPTCODEEN = 0
+			(1 << 7) | // DATAEN = 1
+			(0 << 8) | // OPTCODELEN = 0
+			(3 << 12) | // ADDRLEN = 3 (24-bit address)
+			(1 << 14) | // TFRTYPE = 1 (read)
+			(0 << 15) | // CRMODE = 0
+			(1 << 16) | // DDREN = 0
+			(4 << 17)) // DUMMYLEN = 4 dummy cycles
 }
 
 // BlockSize returns the block size in bytes.
@@ -211,7 +211,7 @@ func (s *QSPIStorage) Write(lba uint64, blocks uint32, buf []byte) (uint32, erro
 		}
 
 		// Copy data into sector buffer
-		copyLen := qspiBlockSize
+		copyLen := uint32(qspiBlockSize)
 		if sectorOffset+copyLen > qspiSectorSize {
 			copyLen = qspiSectorSize - sectorOffset
 		}
@@ -350,8 +350,8 @@ func (s *QSPIStorage) sendCommand(cmd uint8, addr uint32, data []byte, readLen i
 
 	// Configure for SPI mode command
 	instrframe := uint32(0)
-	instrframe |= (0 << 0)  // WIDTH = SINGLE
-	instrframe |= (1 << 4)  // INSTREN = 1
+	instrframe |= (0 << 0) // WIDTH = SINGLE
+	instrframe |= (1 << 4) // INSTREN = 1
 
 	// Add address if non-zero
 	if addr != 0 || cmd == cmdSectorErase || cmd == cmdPageProgram || cmd == cmdRead {
