@@ -7,6 +7,11 @@
 
 Full-featured USB host and device stack written in pure Go.
 
+> [!IMPORTANT]
+> This project includes both code and documentation that was generated with AI assistance under personal moderation.
+> 
+> See [Generated Content](#generated-content) for more.
+
 ## Features
 
 - Zero-dependency: no external modules, cgo, assembly, or platform-specific code
@@ -314,6 +319,18 @@ func main() {
     stack.Start(ctx)
 }
 ```
+
+## Generated Content
+
+LLM-based tools are continuously lowering the bar necessary for anyone to produce software. It is critical we maintain transparency when using these tools. The following sections identify how AI assistance was used or opportunities for using it within this project.
+
+### Source Code
+
+### Test Cases
+
+### Documentation
+
+### Maintenance
 
 ## License
 
