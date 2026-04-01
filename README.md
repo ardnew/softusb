@@ -7,7 +7,7 @@
 
 Full-featured USB host and device stack written in pure Go.
 
-> [!IMPORTANT]
+> [!NOTE]
 > This project includes both code and documentation that was generated with AI assistance under personal moderation.
 > 
 > See [Generated Content](#generated-content) for more.
@@ -322,15 +322,10 @@ func main() {
 
 ## Generated Content
 
-LLM-based tools are continuously lowering the bar necessary for anyone to produce software. It is critical we maintain transparency when using these tools. The following sections identify how AI assistance was used or opportunities for using it within this project.
+> [!NOTE]
+> This project includes both code and documentation that was generated with AI assistance under personal moderation.
 
-### Source Code
-
-### Test Cases
-
-### Documentation
-
-### Maintenance
+Anyone familiar with USB internals will agree that it is a complex medium. The architectural design and implementation of this project is founded upon years of personal USB research and development. Hand-written host/device stacks for various platforms, countless all-night debugging sessions, and an embarrassing fortune spent on tools and evaluation kits. This combined experience has contributed far more to the project than any rote labor — artificially generated or not.
 
 ## License
 
