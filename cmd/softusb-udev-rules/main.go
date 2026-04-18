@@ -12,8 +12,8 @@
 //	-o file      Output file path (default: stdout)
 //	-vid id      Filter by USB Vendor ID (hex)
 //	-pid id      Filter by USB Product ID (hex)
-//	-class id    Filter by USB device class (hex)
-//	-group name  Group to grant access (default: plugdev)
+//	-class id    Filter by USB interface class (hex)
+//	-group name  Group to grant access (default: first of plugdev, input, users)
 //	-mode mode   File permissions (default: 0660)
 //	-all         Generate rules for all USB devices
 //	-hid         Generate rules for all HID devices
@@ -42,6 +42,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/user"
 	"strings"
 )
 
@@ -49,12 +50,36 @@ var (
 	outputFile  = flag.String("o", "", "Output file path (default: stdout)")
 	vendorID    = flag.String("vid", "", "Filter by Vendor ID (hex)")
 	productID   = flag.String("pid", "", "Filter by Product ID (hex)")
-	deviceClass = flag.String("class", "", "Filter by device class (hex)")
+	deviceClass = flag.String("class", "", "Filter by interface class (hex)")
 	groupName   = flag.String("group", "plugdev", "Group to grant access")
 	fileMode    = flag.String("mode", "0660", "File permissions")
 	allDevices  = flag.Bool("all", false, "Generate rules for all USB devices")
 	hidDevices  = flag.Bool("hid", false, "Generate rules for all HID devices")
 )
+
+// groupFallbacks are tried in order when the default group does not exist.
+var groupFallbacks = []string{"plugdev", "input", "users"}
+
+// resolveGroup validates the configured group exists on the system. If the user
+// did not explicitly set -group, it tries each group in groupFallbacks. Returns
+// the resolved group name or an error.
+func resolveGroup(explicit bool) (string, error) {
+	if explicit {
+		if _, err := user.LookupGroup(*groupName); err != nil {
+			return "", fmt.Errorf("group %q does not exist on this system", *groupName)
+		}
+		return *groupName, nil
+	}
+	for _, g := range groupFallbacks {
+		if _, err := user.LookupGroup(g); err == nil {
+			return g, nil
+		}
+	}
+	return "", fmt.Errorf(
+		"none of the default groups %v exist on this system; use -group to specify one",
+		groupFallbacks,
+	)
+}
 
 func main() {
 	flag.Parse()
@@ -64,6 +89,21 @@ func main() {
 		fmt.Fprintln(os.Stderr, "Use -help for usage information")
 		os.Exit(1)
 	}
+
+	// Detect whether -group was explicitly provided.
+	groupExplicit := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "group" {
+			groupExplicit = true
+		}
+	})
+
+	resolved, err := resolveGroup(groupExplicit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	*groupName = resolved
 
 	// Header
 	var rules []string
@@ -100,7 +140,13 @@ func main() {
 func generateAllUSBRule() string {
 	return fmt.Sprintf(
 		`# Allow access to all USB devices
-SUBSYSTEM=="usb", MODE="%s", GROUP="%s"`,
+SUBSYSTEM=="usb", MODE="%s", GROUP="%s"
+# Allow access to all USB HIDRAW devices
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", MODE="%s", GROUP="%s"
+# Allow access to all USB HIDDEV devices
+KERNEL=="hiddev*", SUBSYSTEM=="usbmisc", MODE="%s", GROUP="%s"`,
+		*fileMode, *groupName,
+		*fileMode, *groupName,
 		*fileMode, *groupName,
 	)
 }
@@ -108,44 +154,98 @@ SUBSYSTEM=="usb", MODE="%s", GROUP="%s"`,
 // generateHIDRule generates rules for all HID devices.
 func generateHIDRule() string {
 	return fmt.Sprintf(
-		`# Allow access to all USB HID devices
-SUBSYSTEM=="usb", ATTR{bInterfaceClass}=="03", MODE="%s", GROUP="%s"
-# Also allow access to the raw USB device for HID interfaces
-SUBSYSTEM=="usb", DRIVER=="usbhid", MODE="%s", GROUP="%s"`,
+		`# Allow access to all USB HIDRAW devices
+KERNEL=="hidraw*", ATTRS{bInterfaceClass}=="03", MODE="%s", GROUP="%s"
+# Allow access to all USB HIDDEV devices
+KERNEL=="hiddev*", SUBSYSTEM=="usbmisc", MODE="%s", GROUP="%s"`,
 		*fileMode, *groupName,
 		*fileMode, *groupName,
 	)
 }
 
-// generateSpecificRule generates a rule for specific devices.
+// formatHexID normalizes a hex string to the given width, stripping any "0x"
+// prefix and lowercasing.
+func formatHexID(s string, width int) string {
+	s = strings.ToLower(strings.TrimPrefix(s, "0x"))
+	return fmt.Sprintf("%0*s", width, s)
+}
+
+// generateSpecificRule generates rules for specific devices. It covers the USB
+// bus device node as well as any hidraw/hiddev nodes belonging to the device.
 func generateSpecificRule() string {
-	var conditions []string
-	conditions = append(conditions, `SUBSYSTEM=="usb"`)
+	var rules []string
 
-	if *vendorID != "" {
-		// Normalize to 4 hex digits
-		vid := strings.ToLower(strings.TrimPrefix(*vendorID, "0x"))
-		vid = fmt.Sprintf("%04s", vid)
-		conditions = append(conditions, fmt.Sprintf(`ATTR{idVendor}=="%s"`, vid))
+	vid := formatHexID(*vendorID, 4)
+	pid := formatHexID(*productID, 4)
+	class := formatHexID(*deviceClass, 2)
+
+	// --- USB bus device node (SUBSYSTEM=="usb") ---
+	{
+		conds := []string{`SUBSYSTEM=="usb"`}
+		if *vendorID != "" {
+			conds = append(conds, fmt.Sprintf(`ATTR{idVendor}=="%s"`, vid))
+		}
+		if *productID != "" {
+			conds = append(conds, fmt.Sprintf(`ATTR{idProduct}=="%s"`, pid))
+		}
+		if *deviceClass != "" {
+			conds = append(conds, fmt.Sprintf(`ATTR{bInterfaceClass}=="%s"`, class))
+		}
+		conds = append(conds,
+			fmt.Sprintf(`MODE="%s"`, *fileMode),
+			fmt.Sprintf(`GROUP="%s"`, *groupName),
+		)
+
+		rules = append(rules, commentForFilters()+" (USB device)")
+		rules = append(rules, strings.Join(conds, ", "))
 	}
 
-	if *productID != "" {
-		// Normalize to 4 hex digits
-		pid := strings.ToLower(strings.TrimPrefix(*productID, "0x"))
-		pid = fmt.Sprintf("%04s", pid)
-		conditions = append(conditions, fmt.Sprintf(`ATTR{idProduct}=="%s"`, pid))
+	// --- hidraw node ---
+	{
+		conds := []string{`KERNEL=="hidraw*"`}
+		if *vendorID != "" {
+			conds = append(conds, fmt.Sprintf(`ATTRS{idVendor}=="%s"`, vid))
+		}
+		if *productID != "" {
+			conds = append(conds, fmt.Sprintf(`ATTRS{idProduct}=="%s"`, pid))
+		}
+		if *deviceClass != "" {
+			conds = append(conds, fmt.Sprintf(`ATTRS{bInterfaceClass}=="%s"`, class))
+		}
+		conds = append(conds,
+			fmt.Sprintf(`MODE="%s"`, *fileMode),
+			fmt.Sprintf(`GROUP="%s"`, *groupName),
+		)
+
+		rules = append(rules, commentForFilters()+" (hidraw)")
+		rules = append(rules, strings.Join(conds, ", "))
 	}
 
-	if *deviceClass != "" {
-		// Normalize to 2 hex digits
-		class := strings.ToLower(strings.TrimPrefix(*deviceClass, "0x"))
-		class = fmt.Sprintf("%02s", class)
-		conditions = append(conditions, fmt.Sprintf(`ATTR{bDeviceClass}=="%s"`, class))
+	// --- hiddev node ---
+	{
+		conds := []string{`KERNEL=="hiddev*"`, `SUBSYSTEM=="usbmisc"`}
+		if *vendorID != "" {
+			conds = append(conds, fmt.Sprintf(`ATTRS{idVendor}=="%s"`, vid))
+		}
+		if *productID != "" {
+			conds = append(conds, fmt.Sprintf(`ATTRS{idProduct}=="%s"`, pid))
+		}
+		if *deviceClass != "" {
+			conds = append(conds, fmt.Sprintf(`ATTRS{bInterfaceClass}=="%s"`, class))
+		}
+		conds = append(conds,
+			fmt.Sprintf(`MODE="%s"`, *fileMode),
+			fmt.Sprintf(`GROUP="%s"`, *groupName),
+		)
+
+		rules = append(rules, commentForFilters()+" (hiddev)")
+		rules = append(rules, strings.Join(conds, ", "))
 	}
 
-	conditions = append(conditions, fmt.Sprintf(`MODE="%s"`, *fileMode))
-	conditions = append(conditions, fmt.Sprintf(`GROUP="%s"`, *groupName))
+	return strings.Join(rules, "\n")
+}
 
+func commentForFilters() string {
 	comment := "# Allow access to"
 	if *vendorID != "" {
 		comment += fmt.Sprintf(" VID=%s", *vendorID)
@@ -156,6 +256,5 @@ func generateSpecificRule() string {
 	if *deviceClass != "" {
 		comment += fmt.Sprintf(" Class=%s", *deviceClass)
 	}
-
-	return comment + "\n" + strings.Join(conditions, ", ")
+	return comment
 }
